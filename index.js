@@ -1,24 +1,23 @@
 
+// ================================================================
+// Utility functions
+// ================================================================
+
 const tt = microtonal_utils.Interval(2).sqrt();
 const primesGt5 = microtonal_utils.Interval([0,0].concat(Array(16).fill(1)))
                                   .factors().map(f => f[0]);
+
+function toRatioStr(fr) {
+  return (fr.s * fr.n) + "/" + fr.d;
+}
 
 function fmtXenCalcLink(str) {
   return "https://www.yacavone.net/xen-calc/?expr=" + encodeURIComponent(str);
 }
 
-// Given a value in cents, a number of decimal places, and a boolean indicating
-//  whether to add trailing zeros, return the value truncated to the given
-//  number of decimal places followed by trailing zeros if the boolean is set
-//  and the letter "c".
-function fmtCents(cents, decimalPlaces, trailingZeros) {
-  if (trailingZeros) { return  cents.toFixed(decimalPlaces) + "c"; }
-  else               { return +cents.toFixed(decimalPlaces) + "c"; }
-}
-
-function fmtFifthShiftIdNo(fifthShift) {
-  return "" + 4*fifthShift;
-}
+// ================================================================
+// State variables
+// ================================================================
 
 const rotPresets = [
   ["Standard FJS",      "65/63"],
@@ -43,6 +42,70 @@ const visRegionColors =
   // ["#FF7E79", "#FFD479", "#FFFC8C"];
   ["#FF7878", "#FFD479", "#78A6FF"];
 var visRegionIDs;
+
+// ================================================================
+// Formatting functions
+// ================================================================
+
+// Focuses '#expr' and adds the given string at the current cursor position
+function insertAtCursor(str) {
+  $('#expr').focus();
+  const caret = $('#expr')[0].selectionStart;
+  const curr_val = $('#expr').val();
+  $('#expr').val(curr_val.slice(0,caret) + str + curr_val.slice(caret));
+  $('#expr')[0].selectionStart = caret + str.length;
+  $('#expr')[0].selectionEnd   = caret + str.length;
+}
+
+// Given a value in cents, a number of decimal places, and a boolean indicating
+//  whether to add trailing zeros, return the value truncated to the given
+//  number of decimal places followed by trailing zeros if the boolean is set
+//  and the letter "c".
+function fmtCents(cents, decimalPlaces, trailingZeros) {
+  if (trailingZeros) { return  cents.toFixed(decimalPlaces) + "c"; }
+  else               { return +cents.toFixed(decimalPlaces) + "c"; }
+}
+
+// Given a value in hertz, a number of decimal places, and a boolean indicating
+//  whether to add trailing zeros, return the value truncated to the given
+//  number of decimal places followed by trailing zeros if the boolean is set
+//  and the letters "Hz".
+function fmtHertz(cents, decimalPlaces, trailingZeros) {
+  if (trailingZeros) { return  cents.toFixed(decimalPlaces) + "Hz"; }
+  else               { return +cents.toFixed(decimalPlaces) + "Hz"; }
+}
+
+// Given an interval, returns it formatted as a ratio if it's a ratio, an
+//  nth root if its an nth root for n <= 6 or n equal to the second argument, or
+//  otherwise its factorization
+function fmtExpression(intv, prefEDO) {
+  try {
+    if (intv.toNthRoot().n <= 6) {
+      return intv.toNthRootString();
+    }
+  }
+  catch (err) {}
+  return fmtFactorization(intv);
+}
+
+// Given an interval, returns its factorization as a string
+function fmtFactorization(intv) {
+  let fact = [];
+  for (const [p,e] of Object.entries(intv)) {
+    if (e.n == 1) { fact.push(p); }
+    else if (e.d == 1) { fact.push(p + "^" + (e.s*e.n)); }
+    else { fact.push(p + "^(" + e.toFraction() + ")"); }
+  }
+  return fact.join(" * ");
+}
+
+function fmtFifthShiftIdNo(fifthShift) {
+  return "" + 4*fifthShift;
+}
+
+// ================================================================
+// Updating everything
+// ================================================================
 
 function changeRoTPreset(i, supressUpdateTables) {
   if (i == undefined) { i = $('#rotPreset').val(); }
@@ -145,6 +208,7 @@ function changeFifthSeqPreset(i, supressUpdateTables) {
 
 function updateTables() {
   regions = microtonal_utils.fjsRegions(spec);
+  regionHiCents = regions.map(r => ({hi: r.hi.toCents(), fifthShift: r.fifthShift}));
   // get this list of used fifth shifts
   const regionsByIndex = [...regions].sort(function (a,b) {
     return a.index - b.index;
@@ -210,7 +274,10 @@ function updateTables() {
     const x = e.pageX - $('#visualRegions').offset().left;
     const width = $('#visualRegions').width();
     const i = microtonal_utils.Interval(2).pow(x/width);
-    const fifthShift = microtonal_utils.fjsFifthShift(i, spec);
+    // for performance's sake, we do approximate comparisons here instead of
+    // just calling `microtonal_utils.fjsFifthShift(i, spec)`
+    const iCents = i.toCents();
+    const fifthShift = regionHiCents.find(r => iCents < r.hi).fifthShift;
     changePrimeMarker(true, i, fifthShift);
   });
   $('#visualRegionsContainer').mouseleave(() => changePrimeMarker(false));
@@ -272,6 +339,8 @@ function updateTables() {
     }
     $('#tablePrimes').append(row);
   }
+  // update the conversion
+  updateConversion();
 }
 
 function visRegionHover(on, fifthShiftStr, fifthShift, pyi) {
@@ -314,6 +383,89 @@ function changePrimeMarker(on, i, fifthShift, pyi) {
   else {
     $('#primeMarker').addClass("hidden");
     $('#visText').addClass("hiddenKeepLayout");
+  }
+}
+
+function updateConversion(expr) {
+  if (expr != undefined) {
+    expr = expr.trim();
+    $('#expr').val(expr);
+  }
+  else {
+    expr = $('#expr').val();
+  }
+  $('#errors').addClass("hidden");
+  $('#cvtResSize').text("-");
+  $('#cvtResExpr').text("-");
+  $('#cvtResSymb').text("-");
+  if (expr === "") {
+    return;
+  }
+  try {
+    setConverterVisibility(true);
+    const res = microtonal_utils.parseCvt($('#expr').val(), {fjsLikeSpecs: [spec]});
+    console.log(res);
+    if (res.type == "interval") {
+      $('#cvtResSizeLabel').text("Size in cents:");
+      $('#cvtResSize').text(fmtCents(res.cents, 5));
+      $('#cvtResExprLabel').text("Ratio:");
+      if (res.ratio) {
+        const str = toRatioStr(res.ratio);
+        $('#cvtResExpr').text(str);
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
+      }
+      else {
+        $('#cvtResExprLabel').text("Expression:");
+        const str = fmtExpression(res.intv);
+        if (str.length <= 30) {
+          $('#cvtResExpr').text(str);
+        }
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(fmtFactorization(res.intv)));
+      }
+      const symb = microtonal_utils.fjsSymb(res.intv, spec);
+      console.log(symb);
+      if (symb) { $('#cvtResSymb').text(symb); }
+    }
+    if (res.type == "note") {
+      $('#cvtResSizeLabel').text("Freq. in hertz:");
+      $('#cvtResSize').text(fmtHertz(res.hertz, 5));
+      $('#cvtResExprLabel').text("Expression:");
+      const refSymb = microtonal_utils.pyNote(res.ref.intvToA4);
+      if (res.edoStepsToRef) {
+        const str = fmtEDOStep(res.edoStepsToRef) + " * " + refSymb;
+        $('#cvtResExpr').text(str);
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
+      }
+      else {
+        const str = fmtExpression(res.intvToRef) + " * " + refSymb
+        $('#cvtResExpr').text(str);
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
+      }
+      const intvToA4 = res.intv.mul(res.ref.intvToA4);
+      const symb = microtonal_utils.fjsNote(intvToA4, spec);
+      if (symb) { $('#cvtResSymb').text(symb); }
+    }
+  }
+  catch (err) {
+    if (err.kind == undefined) {
+      newErr = new Error(err.name + (err.message ? "\n" + err.message : ""));
+      newErr.stack = err.stack;
+      console.error(newErr);
+    }
+    $('#errors').removeClass("hidden");
+    const errStr = err.toString().replace("\n","<br>").replace("\\\\","\\");
+    $('#errors').html($('<pre>').addClass("parseError").html(errStr));
+  }
+}
+
+function setConverterVisibility(showConverter) {
+  if (showConverter) {
+    $('#converter').removeClass("hidden");
+    $('#toggleConverter').text("hide converter");
+  }
+  else {
+    $('#converter').addClass("hidden");
+    $('#toggleConverter').text("show converter");
   }
 }
 
@@ -376,8 +528,6 @@ function initState() {
 window.onpopstate = function(e) {
   const url = new URL(window.location);
   console.log(Date.now() + " [popped] " + url.searchParams);
-  if (e && e.state && e.state.res) { console.log(e.state.res); }
-  else if (e) { console.warn("bad state!!"); console.warn(e); }
   setStateFromURL(e);
 };
 
@@ -387,10 +537,6 @@ function setStateFromURL(e) {
 }
 
 function setStateFromParams(urlParams, e) {
-  function getWithDefault(urlParams, param, deflt) {
-    return urlParams.has(param) ? urlParams.get(param) : deflt;
-  }
-  // pull and update everything from urlParams
   const rotPresetP = parseInt(urlParams.get("rotPreset"));
   if (!isNaN(rotPresetP) && rotPresetP > 0 && rotPresetP <= rotPresets.length) {
     changeRoTPreset(rotPresetP, true);
@@ -413,27 +559,8 @@ function setStateFromParams(urlParams, e) {
   else {
     changeFifthSeqPreset(1, true);
   }
+  $('#expr').val(urlParams.has("expr") ? urlParams.get("expr") : "");
   updateTables();
-  // set (or refresh) the click/change events for all the interactables
-  $('#rotPreset').change(function () { changeRoTPreset(); updateURL(); });
-  $('#rot')      .change(function () { changeRoTValue(); updateURL(); });
-  $('#rotSlider').on('input', function () {
-    const doReplace = $('#rotPreset').val() == 0;
-    changeRoTSlider();
-    updateURL(doReplace);
-  });
-  $('#fifthSeqPreset').change(function () { changeFifthSeqPreset(); updateURL(); });
-  $('#fifthSeq')      .change(function () { changeFifthSeq(); updateURL(); });
-  $('#toggleConverter').click(function () {
-    if ($('#toggleConverter').text() == "show converter") {
-      $('#converter').removeClass("hidden");
-      $('#toggleConverter').text("hide converter");
-    }
-    else {
-      $('#converter').addClass("hidden");
-      $('#toggleConverter').text("show converter");
-    }
-  });
 }
 
 
@@ -452,7 +579,57 @@ $(document).ready(function() {
     $('#fifthSeqPreset').append(opt);
   }
 
+  $('#rotPreset').change(function () { changeRoTPreset(); updateURL(); });
+  $('#rot')      .change(function () { changeRoTValue(); updateURL(); });
+  $('#rotSlider').on('input', function () {
+    const doReplace = $('#rotPreset').val() == 0;
+    changeRoTSlider();
+    updateURL(doReplace);
+  });
+  $('#fifthSeqPreset').change(function () { changeFifthSeqPreset(); updateURL(); });
+  $('#fifthSeq')      .change(function () { changeFifthSeq(); updateURL(); });
+  $('#toggleConverter').click(function () {
+    setConverterVisibility($('#toggleConverter').text() == "show converter");
+  });
+
+  setConverterVisibility(false);
+
+  // the rest is (mostly) copy-pasted right from xen-calc
+
   setStateFromURL();
   initState();
+
+  // reset button
+  $('#reset').click(function () {
+    updateURLWithParams({expr: ""});
+    updateConversion("");
+  });
+
+  // accidental buttons
+  $('#add_dbl_flat') .click(function() { insertAtCursor("𝄫"); });
+  $('#add_flat')     .click(function() { insertAtCursor("♭"); });
+  $('#add_nat')      .click(function() { insertAtCursor("♮"); });
+  $('#add_sharp')    .click(function() { insertAtCursor("♯"); });
+  $('#add_dbl_sharp').click(function() { insertAtCursor("𝄪"); });
+
+  // pressing enter while in the text box clicks the enter button
+  $('#expr').keydown(function(event) {
+    if (event.which === 13) {
+      event.preventDefault();
+      $('#enter').addClass('buttonActive');
+    }
+  });
+  $('#expr').keyup(function(event) {
+    if (event.which === 13) {
+      $('#enter').removeClass('buttonActive');
+      $('#enter').click();
+    }
+  });
+
+  // pressing enter!
+  $('#enter').click(function() {
+    updateURLWithParams({expr: $('#expr').val()});
+    updateConversion();
+  });
 
 });

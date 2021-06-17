@@ -22,20 +22,20 @@
 
 <h1><a href=".">Custom FJS Explorer</a></h1>
 
-<div class="explainerText">
-<p>
+<div class="explainerText"><p>
   This is a tool for experimenting with modifications of the
   <a class="alt" href="https://misotanni.github.io/fjs/en/index.html" target="_blank">Functional Just System</a>,
   with presets from
-  <a class="alt" href="https://en.xen.wiki/w/User:FloraC/Critique_on_Functional_Just_System" target="_blank">FloraC's critique</a>,
-  and my
+  <a class="alt" href="https://en.xen.wiki/w/User:FloraC/Critique_on_Functional_Just_System" target="_blank">FloraC's critique</a>
+  and the
   <a class="alt" target="_blank">Neutral FJS</a>.
-  The RoT exact value field accepts
-  <!-- and converter fields (with beige backgrounds) accept -->
+  The RoT exact value and converter fields (with beige backgrounds) accept
   input in the same way as
   <a class="alt" href="https://www.yacavone.net/xen-calc/" target="_blank">xen-calc</a>.
-</p>
-</div>
+  Under the hood, all calculations are done using my
+  <a href="https://github.com/m-yac/microtonal-utils" class="alt" target="_blank">microtonal-utils</a>
+  javascript library.
+</p></div>
 
 <div class="flexContainer">
 <div class="flexBox">
@@ -94,24 +94,69 @@
 </div>
 </div>
 
-<!-- <hr>
+<hr>
 
 <i class="tinyItalics"><a id="toggleConverter" target="_blank">show converter</a></i>
 
-<div id="converter" class="hidden">
-<h4>Converter</h4>
-<div style="width: 50%; margin: auto; margin-bottom: 35px">
-  <input type="text" spellcheck="false" id="rot" class="exprInput" placeholder="exs. M3^5, 5/4"></input>
-  <i class="tinyItalics"><a id="rotXenCalc" target="_blank">open in xen-calc</a></i>
+<div id="converter" class="converterDiv hidden">
+<!-- <h4>Converter</h4> -->
+<div class="flexContainer">
+  <div class="flexBox" style="margin-top: 10px">
+    <input type="text" spellcheck="false" id="expr" class="exprInput" placeholder="e.g. 11/9"></input>
+    <div class="buttons">
+    <div class="alignleft"><!--
+    --><div class="buttonContainer"><button id="reset" title="Reset calculator">Reset</button></div><!--
+    --></div>
+    <div class="aligncenter"><!--
+      --><div class="buttonContainer"><button id="add_dbl_flat" title="Add double flat">𝄫</button></div><!--
+      --><div class="buttonContainer"><button id="add_flat" title="Add flat">♭</button></div><!--
+      --><div class="buttonContainer"><button id="add_nat" title="Add natural">♮</button></div><!--
+      --><div class="buttonContainer"><button id="add_sharp" title="Add sharp">♯</button></div><!--
+      --><div class="buttonContainer"><button id="add_dbl_sharp" title="Add double sharp">𝄪</button></div><!--
+    --></div>
+    <div class="alignright"><!--
+      --><div class="buttonContainer"><button id="enter" title="Enter">Enter</button></div><!--
+    --></div>
+    </div>
+  </div>
+  <div class="flexBox">
+    <table id="cvtResTable" class="cvtResTable">
+      <tr class="hidden">
+        <td id="cvtResSizeLabel" class="cvtResLeftColumn">Size in cents:</td>
+        <td id="cvtResSize" class="cvtResRightColumn">-</td>
+      </tr>
+      <tr>
+        <td id="cvtResExprLabel" colspan=""class="cvtResLeftColumn">Ratio:</td>
+        <td id="cvtResExpr" class="cvtResRightColumn">-</td>
+      </tr>
+      <tr>
+        <td class="cvtResLeftColumn">Symbol:</td>
+        <td id="cvtResSymb" class="cvtResRightColumn">-</td>
+      </tr>
+    </table>
+    <i class="tinyItalics"><a id="cvtXenCalc" target="_blank">open in xen-calc</a></i>
+  </div>
 </div>
-</div> -->
+<div id="errors" class="hidden"></div>
+<div class="smallExplainerText"><p>
+  Enter a symbol (e.g. <a class="expr" href="?expr=M3^5">M3^5</a>,
+  <a class="expr" href="?expr=n3_13">n3_13</a>,
+  <a class="expr" href="?expr=C♯^5">C♯^5</a>),
+  a ratio (e.g. <a class="expr" href="?expr=5%2F4">5/4</a>),
+  or any combination of the two using the same operations and functions as
+  <a class="alt" href="https://www.yacavone.net/xen-calc/" target="_blank">xen-calc</a>
+  (e.g. <a class="expr" href="?expr=n3^11+%2F+(9%2F8)">n3^11 / (9/8)</a>).
+  The live results will use the radius of tolerance and fifth sequence given
+  above when converting symbols.
+</p></div>
+</div>
 
 <hr>
 
 <h4>Regions of the octave (visual)</h4>
 <div id="visualRegionsContainer" class="vizRegionsContainer">
   <dl id="visualRegions" class="vizRegionsContainer" style="height: 52px"></dl>
-  <div class="rotLabelsContainer" style="top:100px">
+  <div class="rotLabelsContainer">
     <span class="rotSliderLabelLeft unselectable">0c</span>
     <span class="rotSliderLabelRight unselectable">1200c</span>
   </div>
@@ -122,7 +167,7 @@
   <div id="highlightedRegionText" class="smallFlexBox">Region:</div>
 </span>
 
-<div class="flexContainer">
+<div class="flexContainer" style="margin-bottom: 20px;">
 <div class="flexBox">
   <h4>Regions of the octave (table)</h4>
   <table id="tableRegions" class="resTable"></table>
@@ -133,7 +178,9 @@
 </div>
 </div>
 
-<br>
+<div class="smallExplainerText"><p>
+  Try hovering your mouse over (or tapping on) the graphic and the tables above!
+</p></div>
 
 <p class="content" style="text-align: center"><a href="https://www.yacavone.net" class=grey>Back to my website</a></p>
 </div></body>
