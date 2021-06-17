@@ -175,6 +175,24 @@ hr {
   vertical-align: top;
 }
 
+.cvtResTable {
+  /* width: 100%; */
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  /* table-layout: fixed; */
+}
+.cvtResLeftColumn {
+  /* width: 50%; */
+  text-align: right;
+  vertical-align: top;
+}
+.cvtResRightColumn {
+  /* width: 50%; */
+  text-align: left;
+  vertical-align: top;
+}
+
 .resTable {
   font-size: 89%;
   width: 100%;
@@ -182,9 +200,10 @@ hr {
 
 .resTable th {
   background-color: #C0C0C0;
+  padding: 4px 4px 4px 4px;
 }
 
-.resTable th, td {
+td {
   padding: 4px 4px 4px 4px;
 }
 
@@ -198,7 +217,7 @@ hr {
 .vizRegionsContainer {
   background-color: white;
   width: 100%;
-  height: 75px;
+  height: 78px;
   margin-bottom: 10px;
   margin-top: 10px;
   position: relative;
@@ -287,6 +306,7 @@ hr {
 
 .parseError {
   margin: auto;
+  margin-bottom: 25px;
   text-align: left;
   font-size: 80%;
   font-family: Courier;
@@ -388,8 +408,20 @@ button:active {
 .explainerText {
   text-align: center;
   display: block;
-  padding: 0 7% 0 7%;
+  padding: 0 4% 0 4%;
   font-size: 95%;
+}
+
+.smallExplainerText {
+  text-align: center;
+  display: block;
+  padding: 0 4% 0 4%;
+  font-size: 90%;
+  margin-bottom: 20px;
+}
+
+.converterDiv {
+  margin: 30px 0 30px 0;
 }
 
 .exprInput  {
@@ -408,8 +440,12 @@ button:active {
 .exprInputSmall {
   text-align: left;
 }
-.exprInputSmall:disabled {
+
+.exprInputSmall:disabled, textarea:disabled {
+  -webkit-text-fill-color: #666;
+  -webkit-opacity: 0.75;
   color: #666;
+  opacity: 0.75;
   background-color: #eee;
 }
 
@@ -449,6 +485,7 @@ button:active {
 }
 
 .rotLabelsContainer {
+  top: 100px;
   display: flex;
 }
 
@@ -473,10 +510,6 @@ textarea {
   -moz-border-radius: 5px;
   -webkit-border-radius: 5px;
   border: 1px solid #BCBEC0;
-}
-textarea:disabled {
-  color: #666;
-  background-color: #eee;
 }
 
 a,
