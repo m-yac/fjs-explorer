@@ -45,14 +45,14 @@
       <td class="paramsLeftColumn">Preset:</td>
       <td class="paramsRightColumn">
         <div id="rotPresetContainer" class="selectContainer rotPresetSelect">
-          <select id="rotPreset" title="RoT preset"></select>
+          <select id="rotPreset" title="Radius of tolerance preset" aria-label="Radius of tolerance preset"></select>
         </div>
       </td>
     </tr>
     <tr>
       <td class="paramsLeftColumn">Exact value:</td>
       <td class="paramsRightColumn">
-        <input type="text" spellcheck="false" disabled="disabled" name="Radius of tolerance (exact value)" id="rot" class="exprInput exprInputSmall"></input>
+        <input type="text" spellcheck="false" disabled="disabled" name="Radius of tolerance (exact value)" aria-label="Radius of tolerance (exact value)" id="rot" class="exprInput exprInputSmall"></input>
         <i class="tinyItalics"><a id="rotXenCalc" target="_blank">open in xen-calc</a></i>
       </td>
     </tr>
@@ -61,7 +61,7 @@
       <td class="paramsRightColumn">
         <span id="rotSize">54.1c</span>
         <div>
-          <input type="range" min="25" max="125" step="0.1" value="54.1" name="Radius of tolerance (slider)" class="rotSlider" id="rotSlider"></input>
+          <input type="range" min="25" max="125" step="0.1" value="54.1" name="Radius of tolerance (slider)" aria-label="Radius of tolerance (slider)" class="rotSlider" id="rotSlider"></input>
           <div class="rotLabelsContainer">
             <span class="rotSliderLabelLeft">25c</span>
             <span class="rotSliderLabelRight">125c</span>
@@ -79,14 +79,14 @@
       <td class="paramsLeftColumn">Preset:</td>
       <td class="paramsRightColumn">
         <div id="fifthSeqPresetContainer" class="selectContainer fifthSeqPresetSelect">
-          <select id="fifthSeqPreset" title="Fifth sequence preset"></select>
+          <select id="fifthSeqPreset" title="Fifth sequence preset" aria-label="Fifth sequence preset"></select>
         </div>
       </td>
     </tr>
     <tr>
       <td class="paramsLeftColumn">Sequence:</td>
       <td class="paramsRightColumn">
-        <textarea disabled="disabled" id="fifthSeq" name="Fifth sequence" rows="5"></textarea>
+        <textarea disabled="disabled" id="fifthSeq" name="Fifth sequence" aria-label="Fifth sequence" rows="5"></textarea>
       </td>
     </tr>
   </table>
@@ -96,7 +96,7 @@
 
 <hr>
 
-<i class="tinyItalics"><a id="toggleConverter" target="_blank">show converter</a></i>
+<button class="textButton" id="toggleConverter" title="Show/hide converter">show converter</button>
 
 <div id="converter" class="converterDiv hidden">
 <!-- <h4>Converter</h4> -->

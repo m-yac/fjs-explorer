@@ -525,6 +525,26 @@ a:visited:focus {
   color: #F3470F;
 }
 
+.textButton {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  color: #222;
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 90%;
+  font-style: italic;
+}
+.textButton:hover,
+.textButton:focus {
+  color: #F3470F;
+  box-shadow: none;
+}
+.textButton:active {
+  background: none;
+}
+
 a.alt {
   color: #0645AD;
   font-weight: bold;
