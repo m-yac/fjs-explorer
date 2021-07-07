@@ -92,7 +92,7 @@ function fmtExpression(intv, prefEDO) {
 function fmtFactorization(intv) {
   let fact = [];
   for (const [p,e] of Object.entries(intv)) {
-    if (e.n == 1) { fact.push(p); }
+    if (e.equals(1)) { fact.push(p); }
     else if (e.d == 1) { fact.push(p + "^" + (e.s*e.n)); }
     else { fact.push(p + "^(" + e.toFraction() + ")"); }
   }
@@ -519,10 +519,12 @@ function initState() {
   // On my machine firefox has weird behavior on refresh, so I always pushState
   // when refreshing on firefox on a non-blank page (which still gives weird
   // behavior, but at least it's better)
-  const doReplace =
-    [...url.searchParams.entries()].length == 0
-    || !navigator.userAgent.toLowerCase().includes("firefox");
-  updateURLTo(url, doReplace);
+  // const doReplace =
+  //   [...url.searchParams.entries()].length == 0;
+  //   || !navigator.userAgent.toLowerCase().includes("firefox")
+  //   || (performance && performance.getEntriesByType("navigation")[0].type != "reload");
+  // ^ Commenting out this "fix" for now, because I can't replicate it (7/7/21)
+  updateURLTo(url, true); // doReplace);
 }
 
 window.onpopstate = function(e) {
