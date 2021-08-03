@@ -318,10 +318,9 @@ td {
   word-wrap: break-word;
 }
 
-.hoverSwap .hoverSwap_on { position: relative; visibility: hidden; }
-.hoverSwap .hoverSwap_off { position: absolute; display: inline; }
-.hoverSwap:hover .hoverSwap_on { visibility: visible; }
-.hoverSwap:focus .hoverSwap_on { visibility: visible; }
+.hoverSwap .hoverSwap_on { display: none; }
+.hoverSwap:hover .hoverSwap_on { display: inline; }
+.hoverSwap:focus .hoverSwap_on { display: inline; }
 .hoverSwap:hover .hoverSwap_off { display: none; }
 .hoverSwap:focus .hoverSwap_off { display: none; }
 
