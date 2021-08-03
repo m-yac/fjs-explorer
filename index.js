@@ -11,8 +11,24 @@ function toRatioStr(fr) {
   return (fr.s * fr.n) + "/" + fr.d;
 }
 
+function reformatURL(str) {
+  // encode a couple more characters from RFC 3986
+  // (adapted from: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent)
+  str = str.replaceAll(/[!']/g, function(c) {
+    return '%' + c.charCodeAt(0).toString(16);
+  });
+  // encode spaces as "+"s
+  str = str.replaceAll(/%20/gi, "+");
+  // un-encode some characters for nicer-to-read URLs
+  ['/','-','^',','/*,'[',']','|','<','>'*/].forEach(function (c) {
+    const pat = new RegExp('%' + c.charCodeAt(0).toString(16), 'gi');
+    str = str.replaceAll(pat, c);
+  })
+  return str;
+}
+
 function fmtXenCalcLink(str) {
-  return "https://www.yacavone.net/xen-calc/?expr=" + encodeURIComponent(str);
+  return "https://www.yacavone.net/xen-calc/?q=" + reformatURL(encodeURIComponent(str));
 }
 
 // ================================================================
@@ -57,6 +73,11 @@ function insertAtCursor(str) {
   $('#expr')[0].selectionEnd   = caret + str.length;
 }
 
+// Given an array `[n, edo]` returns the string "n\edo"
+function fmtEDOStep(step) {
+  return step[0] + "\\" + step[1];
+}
+
 // Given a value in cents, a number of decimal places, and a boolean indicating
 //  whether to add trailing zeros, return the value truncated to the given
 //  number of decimal places followed by trailing zeros if the boolean is set
@@ -75,28 +96,50 @@ function fmtHertz(cents, decimalPlaces, trailingZeros) {
   else               { return +cents.toFixed(decimalPlaces) + "Hz"; }
 }
 
+// Given an interval, returns its factorization as a string
+function fmtFactorization(intv) {
+  let [fact_off, fact_on] = [[], []];
+  for (const [p,e] of intv.factors()) {
+    if (e.equals(1)) {
+      fact_off.push(p);
+      fact_on.push(p);
+    }
+    else if (e.d == 1) {
+      fact_off.push(p + "<sup>" + (e.s*e.n) + "</sup>");
+      fact_on.push(p + "^" + (e.s*e.n));
+    }
+    else {
+      fact_off.push(p + "<sup>" + e.toFraction() + "</sup>")
+      fact_on.push(p + "^(" + e.toFraction() + ")");
+    }
+  }
+  return [fact_off.join(" * "), fact_on.join(" * ")];
+}
+
 // Given an interval, returns it formatted as a ratio if it's a ratio, an
 //  nth root if its an nth root for n <= 6 or n equal to the second argument, or
 //  otherwise its factorization
 function fmtExpression(intv, prefEDO) {
   try {
     if (intv.toNthRoot().n <= 6) {
-      return intv.toNthRootString();
+      const nthRootStr = intv.toNthRootString();
+      return [nthRootStr, nthRootStr];
     }
   }
   catch (err) {}
   return fmtFactorization(intv);
 }
 
-// Given an interval, returns its factorization as a string
-function fmtFactorization(intv) {
-  let fact = [];
-  for (const [p,e] of Object.entries(intv)) {
-    if (e.equals(1)) { fact.push(p); }
-    else if (e.d == 1) { fact.push(p + "^" + (e.s*e.n)); }
-    else { fact.push(p + "^(" + e.toFraction() + ")"); }
+// Wrap a given string in an <a> tag formatted with the `expr` class
+function fmtExtExprLink(str, linkstr) {
+  if (linkstr === undefined) {
+    linkstr = str
   }
-  return fact.join(" * ");
+  const queryStr = reformatURL(encodeURIComponent(linkstr));
+  let link = $('<a>').attr("href", "?q=" + queryStr)
+                     .attr("style", "vertical-align: top;")
+                     .html(str);
+  return link;
 }
 
 function fmtFifthShiftIdNo(fifthShift) {
@@ -404,46 +447,89 @@ function updateConversion(expr) {
   try {
     setConverterVisibility(true);
     const res = microtonal_utils.parseCvt($('#expr').val(), {fjsLikeSpecs: [spec]});
-    console.log(res);
+    const intv = res.type == "interval" ? res.intv : res.intvToRef.mul(res.ref.intvToA4);
     if (res.type == "interval") {
       $('#cvtResSizeLabel').text("Size in cents:");
       $('#cvtResSize').text(fmtCents(res.cents, 5));
       $('#cvtResExprLabel').text("Ratio:");
       if (res.ratio) {
         const str = toRatioStr(res.ratio);
-        $('#cvtResExpr').text(str);
+        $('#cvtResExpr').html(fmtExtExprLink(str));
         $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
       }
       else {
         $('#cvtResExprLabel').text("Expression:");
-        const str = fmtExpression(res.intv);
-        if (str.length <= 30) {
-          $('#cvtResExpr').text(str);
+        const [str_off, str_on] = fmtExpression(res.intv);
+        if (str_on.length <= 30) {
+          if (str_off !== str_on) {
+            $('#cvtResExpr').addClass("hoverSwap");
+            $('#cvtResExpr').empty();
+            $('#cvtResExpr').append($('<span>').addClass('hoverSwap_off')
+                                               .html(fmtExtExprLink(str_off, str_on)));
+            $('#cvtResExpr').append($('<span>').addClass('hoverSwap_on')
+                                               .html(fmtExtExprLink(str_on)));
+          }
+          else {
+            $('#cvtResExpr').removeClass("hoverSwap");
+            $('#cvtResExpr').html(fmtExtExprLink(str_on));
+          }
         }
-        $('#cvtXenCalc').attr("href", fmtXenCalcLink(fmtFactorization(res.intv)));
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str_on));
       }
-      const symb = microtonal_utils.fjsSymb(res.intv, spec);
-      console.log(symb);
-      if (symb) { $('#cvtResSymb').text(symb); }
     }
     if (res.type == "note") {
       $('#cvtResSizeLabel').text("Freq. in hertz:");
-      $('#cvtResSize').text(fmtHertz(res.hertz, 5));
+      $('#cvtResSize').html(fmtExtExprLink(fmtHertz(res.hertz, 5)));
       $('#cvtResExprLabel').text("Expression:");
       const refSymb = microtonal_utils.pyNote(res.ref.intvToA4);
       if (res.edoStepsToRef) {
         const str = fmtEDOStep(res.edoStepsToRef) + " * " + refSymb;
-        $('#cvtResExpr').text(str);
+        $('#cvtResExpr').html(fmtExtExprLink(str));
         $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
       }
       else {
-        const str = fmtExpression(res.intvToRef) + " * " + refSymb
-        $('#cvtResExpr').text(str);
-        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str));
+        let [str_off, str_on] = fmtExpression(res.intvToRef);
+        str_off += " * " + refSymb;
+        str_on += " * " + refSymb;
+        if (str_on.length <= 33 + refSymb.length) {
+          if (str_off !== str_on) {
+            $('#cvtResExpr').addClass("hoverSwap");
+            $('#cvtResExpr').empty();
+            $('#cvtResExpr').append($('<span>').addClass('hoverSwap_off')
+                                               .html(fmtExtExprLink(str_off, str_on)));
+            $('#cvtResExpr').append($('<span>').addClass('hoverSwap_on')
+                                               .html(fmtExtExprLink(str_on)));
+          }
+          else {
+            $('#cvtResExpr').removeClass("hoverSwap");
+            $('#cvtResExpr').html(fmtExtExprLink(str_on));
+          }
+        }
+        $('#cvtXenCalc').attr("href", fmtXenCalcLink(str_on));
       }
-      const intvToA4 = res.intv.mul(res.ref.intvToA4);
-      const symb = microtonal_utils.fjsNote(intvToA4, spec);
-      if (symb) { $('#cvtResSymb').text(symb); }
+    }
+    const symb = res.type == "interval" ? microtonal_utils.fjsSymb(intv, spec)
+                                        : microtonal_utils.fjsNote(intv, spec);
+    const accs = microtonal_utils.fjsAccidentals(intv, spec);
+    if (accs != undefined) {
+      const {otos, utos, pyi} = accs;
+      if (otos.length != 0 || utos.length != 0) {
+        const otoStr = otos.length == 0 ? "" : "<sup>" + otos.join(",") + "</sup>";
+        const utoStr = utos.length == 0 ? "" : "<sub>" + utos.join(",") + "</sub>";
+        const withSupsSubs = (res.type == "interval" ? microtonal_utils.pySymb(pyi)
+                                                     : microtonal_utils.pyNote(pyi))
+                             + '<span class="supsub">' + otoStr + utoStr + '</span>';
+        $('#cvtResSymb').addClass("hoverSwap");
+        $('#cvtResSymb').empty();
+        $('#cvtResSymb').append($('<span>').addClass('hoverSwap_off')
+                                           .html(fmtExtExprLink(withSupsSubs, symb)));
+        $('#cvtResSymb').append($('<span>').addClass('hoverSwap_on')
+                                           .html(fmtExtExprLink(symb)));
+      }
+      else {
+        $('#cvtResSymb').removeClass("hoverSwap");
+        $('#cvtResSymb').html(symb);
+      }
     }
   }
   catch (err) {
@@ -561,7 +647,12 @@ function setStateFromParams(urlParams, e) {
   else {
     changeFifthSeqPreset(1, true);
   }
-  $('#expr').val(urlParams.has("expr") ? urlParams.get("expr") : "");
+  let expr = urlParams.has('q') ? urlParams.get('q') : "";
+  if (urlParams.has('expr')) {
+    expr = urlParams.get('expr');
+    updateURLWithParams({q: expr, expr: ""}, true);
+  }
+  $('#expr').val(expr);
   updateTables();
 }
 
@@ -603,7 +694,7 @@ $(document).ready(function() {
 
   // reset button
   $('#reset').click(function () {
-    updateURLWithParams({expr: ""});
+    updateURLWithParams({q: ""});
     updateConversion("");
   });
 
@@ -630,8 +721,8 @@ $(document).ready(function() {
 
   // pressing enter!
   $('#enter').click(function() {
-    updateURLWithParams({expr: $('#expr').val()});
     updateConversion();
+    updateURLWithParams({q: $('#expr').val()});
   });
 
 });

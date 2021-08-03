@@ -10,27 +10,7 @@ const pf = require('primes-and-factors');
 const Fraction = require('fraction.js');
 const Interval = require('./interval.js');
 const {edoApprox} = require('./edo.js');
-
-// For a given interval with factorization `p1^e1 ... pm^em` (where `pk` is
-// prime and `ek > 0` for all `k`), `signPerms(intv)` is the array of all
-// intervals with factorizations `p1^(+/- e1) ... pm^(+/- em)`. For example, if
-// `i = 45` then `i = 3^2 * 5^1` and
-// `signPerms(i) = [ 3^2 * 5^1, 3^(-2) * 5^1, 3^2 * 5^(-1), 3^(-2) * 5(-1) ]`.
-// Note that we also include the log2 values of each interval as well.
-function signPerms(intv) {
-  const intv_fact = intv.factors();
-  let ret = [];
-  for (let bits = 0; bits < (1 << intv_fact.length); bits++) {
-    let [i, fact, logval] = [0, {}, 0];
-    for (const [p,e] of intv_fact) {
-      fact[p] = e.mul((bits & (1 << i)) == 0 ? 1 : -1);
-      logval += fact[p].valueOf() * cachedLog2(p);
-      i++;
-    }
-    ret.push([Interval(fact), logval]);
-  }
-  return ret;
-}
+const {ratioPermsByNo2sHeight, ratioPermsByHeight, ratiosWithDenom, ratiosInOddLimit} = require('./sets.js');
 
 // The epsilon to use when comparing approximate distances
 const epsilon = 1e-5;
@@ -95,18 +75,15 @@ function bestRationalApproxsByNo2sHeight(a,b, opts) {
   if (cutoff == undefined) { cutoff = Interval(2).pow(1,12).sqrt(); }
   if (startIteration == undefined) { startIteration = 0; }
   if (numIterations == undefined) { numIterations = 1; }
-  let n_max = (startIteration + numIterations) * iterationSize;
+  const startOdd = 2 * startIteration * iterationSize + 1;
+  const endOdd = 2 * (startIteration + numIterations) * iterationSize + 1;
 
   let [foundExact, ret] = [false, []];
   let [dist_bound, approx_dist_bound] = [cutoff, cutoff.valueOf_log() + epsilon];
-  for (let n = startIteration * iterationSize; !foundExact && n < n_max; n++) {
-    const i = Interval(2*n + 1);
-    if (primeLimit && !i.inPrimeLimit(primeLimit)) {
-      continue;
-    }
+  for (const [i, perms] of ratioPermsByNo2sHeight(startOdd, endOdd, {primeLimit: primeLimit})) {
     let to_add = [];
     let [new_dist_bound, new_approx_dist_bound] = [dist_bound, approx_dist_bound];
-    for (const [j_no2s, j_no2s_logval] of signPerms(i)) {
+    for (const [j_no2s, j_no2s_logval] of perms) {
       const j_approx_dist = Math.abs(fractionalPart(j_no2s_logval - intv_logval));
       if (j_approx_dist < approx_dist_bound) {
         const j_diff = j_no2s.div(intv).reb();
@@ -129,7 +106,7 @@ function bestRationalApproxsByNo2sHeight(a,b, opts) {
       ret.push({ ratio: j.toFrac(), diff: useExactDiffs ? j_diff : j_diff.toCents() });
     }
     [dist_bound, approx_dist_bound] = [new_dist_bound, new_approx_dist_bound];
-    if (dist_bound.equals(1)) { foundExact = true };
+    if (dist_bound.equals(1)) { foundExact = true; break; };
   }
   if (debug) {
     console.timeEnd("bestRationalApproxsByNo2sHeight");
@@ -192,20 +169,17 @@ function bestRationalApproxsByHeight(a,b, opts) {
   if (cutoff == undefined) { cutoff = Interval(2).pow(1,12).sqrt(); }
   if (startIteration == undefined) { startIteration = 0; }
   if (numIterations == undefined) { numIterations = 1; }
-  let n_max = (startIteration + numIterations) * iterationSize + 1;
+  const start = startIteration * iterationSize + 1
+  const end = (startIteration + numIterations) * iterationSize + 1;
 
   let [foundExact, ret] = [false, []];
   let [dist_bound, approx_dist_bound] = [cutoff, cutoff.valueOf_log() + epsilon];
-  for (let n = startIteration * iterationSize + 1; !foundExact && n < n_max; n++) {
-    const i = Interval(n);
-    if (primeLimit && !i.inPrimeLimit(primeLimit)) {
-      continue;
-    }
+  for (const [i, perms] of ratioPermsByHeight(start, end, {primeLimit: primeLimit, oddLimit: oddLimit})) {
     let to_add = [];
     let [new_dist_bound, new_approx_dist_bound] = [dist_bound, approx_dist_bound];
-    for (const [j, j_logval] of signPerms(i)) {
+    for (const [j, j_logval] of perms) {
       const j_approx_dist = Math.abs(j_logval - intv_logval);
-      if (j_approx_dist < approx_dist_bound && (!oddLimit || j.inOddLimit(oddLimit))) {
+      if (j_approx_dist < approx_dist_bound) {
         const j_diff = j.div(intv);
         const j_dist = j_diff.distance();
         if (j_dist.compare(dist_bound) <= 0) {
@@ -223,7 +197,7 @@ function bestRationalApproxsByHeight(a,b, opts) {
       ret.push({ ratio: j.toFrac(), diff: useExactDiffs ? j_diff : j_diff.toCents() });
     }
     [dist_bound, approx_dist_bound] = [new_dist_bound, new_approx_dist_bound];
-    if (dist_bound.equals(1)) { foundExact = true };
+    if (dist_bound.equals(1)) { foundExact = true; break; };
   }
   if (debug) {
     console.timeEnd("bestRationalApproxsByHeight");
@@ -268,81 +242,24 @@ function bestRationalApproxsByDenom(a,b, opts) {
   if (debug) { console.time("bestRationalApproxsByDenom"); }
 
   if (cutoff == undefined) { cutoff = Interval(2).pow(1,12).sqrt(); }
-  if (primeLimit == undefined && oddLimit) { primeLimit = oddLimit; }
   if (startIteration == undefined) { startIteration = 0; }
   if (numIterations == undefined) { numIterations = 1; }
   if (iterationSize == undefined) { iterationSize = 100; }
   let d_max = (startIteration + numIterations) * iterationSize + 1;
 
   let [foundExact, ret] = [false, []];
-  let [dist_bound, approx_dist_bound] = [cutoff, cutoff.valueOf_log() + epsilon];
+  let dist_bound = cutoff;
   for (let d = startIteration * iterationSize + 1; !foundExact && d < d_max; d++) {
-    if (oddLimit && d % 2 != 0 && d > oddLimit) {
-      continue;
-    }
-    const nBest = Math.round(intv.mul(d).valueOf());
-    // If nBest/d is not in our odd limit, can there exist some i such that
-    // (nBest+i)/d is in our odd limit but also satisfies dist <= dist_bound?
-    // I have no idea! So for now, we check all of n, n+1, n+2, ... and
-    // n-1, n-2, n-3, ... until we've cleared dist_bound.
-    for (let n = nBest; !foundExact; n++) {
-      // NB: If you make any changes to this, make sure to update the below -
-      // the bodies of these two loops should be identical.
-      const r = Fraction(n,d);
+    const ropts = {lo: intv.div(dist_bound), hi: intv.mul(dist_bound),
+                   primeLimit: primeLimit, oddLimit: oddLimit};
+    for (const r of ratiosWithDenom(d, ropts)) {
       const i = Interval(r);
-      const approx_dist = Math.abs(i.valueOf_log() - intv_logval);
-      if (approx_dist < approx_dist_bound) {
-        const diff = i.div(intv);
-        const dist = diff.distance();
-        if (dist.compare(dist_bound) <= 0) {
-          // if n/d reduces, we've seen it already - so we can safely skip
-          if (r.d != d) {
-            continue;
-          }
-          if (oddLimit && r.n % 2 != 0 && r.n > oddLimit) {
-            continue;
-          }
-          dist_bound = dist;
-          approx_dist_bound = approx_dist + epsilon;
-          ret.push({ ratio: r, diff: useExactDiffs ? diff : diff.toCents() });
-          if (dist_bound.equals(1)) { foundExact = true };
-        }
-        else {
-          break;
-        }
-      }
-      else {
-        break;
-      }
-    }
-    for (let n = nBest-1; !foundExact && n > 0; n--) {
-      // NB: If you make any changes to this, make sure to update the above -
-      // the bodies of these two loops should be identical.
-      const r = Fraction(n,d);
-      const i = Interval(r);
-      const approx_dist = Math.abs(i.valueOf_log() - intv_logval);
-      if (approx_dist < approx_dist_bound) {
-        const diff = i.div(intv);
-        const dist = diff.distance();
-        if (dist.compare(dist_bound) <= 0) {
-          // if n/d reduces, we've seen it already - so we can safely skip
-          if (r.d != d) {
-            continue;
-          }
-          if (oddLimit && r.n % 2 != 0 && r.n > oddLimit) {
-            continue;
-          }
-          dist_bound = dist;
-          approx_dist_bound = approx_dist + epsilon;
-          ret.push({ ratio: r, diff: useExactDiffs ? diff : diff.toCents() });
-          if (dist_bound.equals(1)) { foundExact = true };
-        }
-        else {
-          break;
-        }
-      }
-      else {
-        break;
+      const diff = i.div(intv);
+      const dist = diff.distance();
+      if (dist.compare(dist_bound) <= 0) {
+        dist_bound = dist;
+        ret.push({ ratio: r, diff: useExactDiffs ? diff : diff.toCents() });
+        if (dist_bound.equals(1)) { foundExact = true; break; };
       }
     }
   }
@@ -374,48 +291,36 @@ function bestRationalApproxsByDiff(a,b, opts) {
     }
   }
   const intv = Interval(a,b);
-  let {primeLimit, oddLimit, useExactDiffs, debug} = opts;
+  let {cutoff, primeLimit, oddLimit, useExactDiffs, debug} = opts;
   if (!isFinite(oddLimit) || oddLimit <= 0) {
     throw new Error("no valid odd limit given to bestRationalApproxsByDiff!");
   }
   if (debug) { console.time("bestRationalApproxsByDiff"); }
 
+  if (cutoff == undefined) { cutoff = Interval(2).pow(1,12).sqrt(); }
+  const ropts = {lo: intv.div(cutoff), hi: intv.mul(cutoff), primeLimit: primeLimit};
+
   let ret = [];
-  const diff_to_1 = intv.recip().reb();
-  const dist_to_1 = diff_to_1.distance();
-  ret.push({ ratio: intv.mul(diff_to_1).toFrac(), diff: diff_to_1,
-             dist: dist_to_1, dist_bound: dist_to_1.valueOf_log() + epsilon });
-  for (let a = 1; a <= oddLimit; a += 2) {
-    for (let b = 1; b < a; b += 2) {
-      const r = Fraction(a,b);
-      // skip all cases where a/b is not reduced
-      if (r.n != a || r.d != b) {
-        continue;
-      }
-      for (const j of [Interval(r), Interval(r).recip()]) {
-        if (primeLimit && !j.inPrimeLimit(primeLimit)) {
-          continue;
-        }
-        const diff = j.div(intv).reb();
-        const dist = diff.distance();
-        const approx_dist = dist.valueOf_log();
-        const to_add = { ratio: intv.mul(diff).toFrac(), diff: diff,
-                         dist: dist, dist_bound: approx_dist + epsilon };
-        let added = false;
-        for (let i = 0; !added && i < ret.length; i++) {
-          if (approx_dist < ret[i].dist_bound
-              && ((dist.equals(ret[i].dist) && diff.compare(ret[i].diff) < 0)
-                  || dist.compare(ret[i].dist) < 0)) {
-            ret.splice(i, 0, to_add);
-            added = true;
-          }
-        }
-        if (!added) {
-          ret.push(to_add);
-        }
+  for (const r of ratiosInOddLimit(oddLimit, ropts)) {
+    const j = Interval(r);
+    const diff = j.div(intv);
+    const dist = diff.distance();
+    const approx_dist = dist.valueOf_log();
+    const to_add = { ratio: r, diff: diff, dist: dist, dist_bound: approx_dist + epsilon };
+    let added = false;
+    for (let i = 0; !added && i < ret.length; i++) {
+      if (approx_dist < ret[i].dist_bound
+          && ((dist.equals(ret[i].dist) && diff.compare(ret[i].diff) < 0)
+              || dist.compare(ret[i].dist) < 0)) {
+        ret.splice(i, 0, to_add);
+        added = true;
       }
     }
+    if (!added) {
+      ret.push(to_add);
+    }
   }
+
   if (debug) { console.timeEnd("bestRationalApproxsByDiff"); }
   return ret.map(x => ({ ratio: x.ratio, diff: useExactDiffs ? x.diff : x.diff.toCents() }));
 }
@@ -539,7 +444,7 @@ module.exports.bestRationalApproxsByDiff   = bestRationalApproxsByDiff;
 module.exports.bestEDOApproxsByEDO  = bestEDOApproxsByEDO;
 module.exports.bestEDOApproxsByDiff = bestEDOApproxsByDiff;
 
-},{"./edo.js":3,"./interval.js":7,"./utils.js":12,"fraction.js":15,"primes-and-factors":19}],2:[function(require,module,exports){
+},{"./edo.js":3,"./interval.js":7,"./sets.js":12,"./utils.js":13,"fraction.js":16,"primes-and-factors":20}],2:[function(require,module,exports){
 /**
  * Color notation for intervals
  * Based on: https://en.xen.wiki/w/Color_notation
@@ -711,14 +616,30 @@ function colorMultiPrefix(n) {
   *
   * @param {integer} p a prime
   * @param {integer} e the prime exponent
-  * @param {boolean} [abbreviate=false]
+  * @param {Object=} opts
+  * @param {integer=} opts.verbosity verbosity can be the default 0
+  *                                  (e.g. "17ooo"), 1 (e.g. "triso-a"), or 2
+  *                                  (the same as 1 for this function)
+  * @param {boolean} opts.useExps defaults to false
+  * @param {boolean=} opts.useHTMLExps defaults to false
   * @returns {string}
   */
-function colorFactorPrefix(p, e, verbosity) {
+function colorFactorPrefix(p, e, opts) {
   if (e == 0) { return ""; }
+  if (opts == undefined) { opts = {}; }
+  const {verbosity, useExps, useHTMLExps} = opts;
+  if (verbosity == undefined) { verbosity = 0; }
+
   const base = colorPrimePrefix(p, e > 0 ? "o" : "u", verbosity == 0);
   const eAbs = Math.abs(e);
   if (verbosity == 0) {
+    if (eAbs == 1) { return base; }
+    if (eAbs == 2) { return base + base[base.length-1]; }
+    if (useHTMLExps) { return base + "<sup>" + eAbs + "</sup>"; }
+    if (useExps) {
+      if ((''+eAbs).length == 1) { return base + "^" + eAbs; }
+      else { return base + "^(" + eAbs + ")"; }
+    }
     return base + base[base.length-1].repeat(eAbs-1);
   }
   else {
@@ -760,10 +681,13 @@ function findRuns(factors) {
   * @param {integer=} opts.verbosity verbosity can be the default 0
   *                                  (e.g. "17og"), 1 (e.g. "sogu"), or 2
   *                                  (the same as 1 for this function)
+  * @param {boolean=} opts.addCosAfterDeg defaults to 13, if set to `Infinity`,
+  *                                       a "co" prefix is never added
   * @param {boolean=} opts.hideMagnitude defaults to false
   * @param {boolean=} opts.useFullMagnitude defaults to false
   * @param {boolean=} opts.keepTrailingHyphen defaults to false
-  * @param {boolean=} opts.hasCoPrefix defaults to false, used in colorTempermentName
+  * @param {boolean} opts.useExps defaults to false
+  * @param {boolean=} opts.useHTMLExps defaults to false
   * @returns {string}
   */
 function colorPrefix(a,b, opts) {
@@ -772,35 +696,64 @@ function colorPrefix(a,b, opts) {
     opts = b;
     b = undefined;
   }
-  let {verbosity, hideMagnitude, useFullMagnitude, keepTrailingHyphen, hasCoPrefix} = opts || {};
+  let { verbosity, addCosAfterDeg, hideMagnitude,
+        useFullMagnitude, keepTrailingHyphen, useExps, useHTMLExps} = opts || {};
   if (verbosity == undefined) { verbosity = 0; }
+  if (addCosAfterDeg == undefined) { addCosAfterDeg = 13; }
 
-  const i = Interval(a,b);
+  let i = Interval(a,b);
   if (!i.isFrac()) {
     throw new Error("Non-ratio has no color name");
   }
+
+  // the cos string
+  let [cos, coStr] = [0, ""];
+  const [i_logval, d] = [i.valueOf_log(), colorDegree(i)];
+  if (i_logval >= 1 && (d > addCosAfterDeg || d < -addCosAfterDeg)) {
+    cos = Math.floor(i_logval);
+    i = i.div(Interval(2).pow(cos));
+  }
+  if (verbosity == 0) {
+    if (cos == 0) { coStr = "" }
+    else if (cos == 1) { coStr = "c"; }
+    else if (cos == 2) { coStr = "cc"; }
+    else if (useHTMLExps) { coStr = "c<sup>" + cos + "</sup>"; }
+    else if (useExps) {
+      if ((''+cos).length == 1) { coStr = "c^" + cos; }
+      else { coStr = "c^(" + cos + ")"; }
+    }
+    else { coStr = "c".repeat(cos); }
+  }
+  else {
+    if (cos == 1) { coStr = "co"; }
+    if (cos == 2) { coStr = "coco"; }
+    if (cos >= 3) { coStr = colorMultiPrefix(cos) + "co"; }
+  }
+
   let iNo23 = i.factorOut(2)[1].factorOut(3)[1];
   let factors = iNo23.factors();
 
   // the magnitude string
-  let mStr = "";
+  let [mAbs, mStr] = [0, ""];
   const m = colorMagnitude(i);
   if (m != 0 && !hideMagnitude) {
-    const mAbs = Math.abs(m);
+    mAbs = Math.abs(m);
     if (verbosity == 0) {
-      mStr = (m > 0 ? "L" : "s").repeat(mAbs);
+      const c = m > 0 ? "L" : "s";
+      if (mAbs == 0) { mStr = ""; }
+      else if (mAbs == 1) { mStr = c; }
+      else if (mAbs == 2) { mStr = c + c; }
+      else if (useHTMLExps) { mStr = c + "<sup>" + mAbs + "</sup>"; }
+      else if (useExps) {
+        if ((''+mAbs).length == 1) { mStr = c + "^" + mAbs; }
+        else { mStr = c + "^(" + mAbs + ")"; }
+      }
+      else { mStr = c.repeat(mAbs); }
     }
     else if (!useFullMagnitude) {
       mStr = m > 0 ? "la" : "sa";
       if (mAbs == 2) { mStr = mStr + mStr; }
       if (mAbs >= 3) { mStr = colorMultiPrefix(mAbs) + mStr; }
-      // we add a hyphen in all but the three cases in which we would have a
-      //  single syllable on either the left or right side
-      if (!(mAbs == 1 || factors.length == 0
-                      || (factors.length == 1 && Math.abs(factors[0][1]) == 1
-                                              && !hasCoPrefix))) {
-        mStr = mStr + "-";
-      }
     }
     else {
       mStr = m > 0 ? "large " : "small ";
@@ -808,17 +761,16 @@ function colorPrefix(a,b, opts) {
     }
   }
 
-  // the wa case
-  if (factors.length == 0) {
-    return mStr + colorFactorPrefix(3, 1, verbosity);
-  }
-
   // the prefix string
   let pStr = "";
+  // the wa case
+  if (factors.length == 0) {
+    pStr = colorFactorPrefix(3, 1, opts);
+  }
   // if verbosity != 0, pull out runs of prime exponents
-  if (verbosity != 0) {
+  else if (verbosity != 0) {
     for (const [ps,e] of findRuns(factors)) {
-      const psStrs = ps.map(([p,si]) => colorFactorPrefix(p, si, verbosity));
+      const psStrs = ps.map(([p,si]) => colorFactorPrefix(p, si, opts));
       if (e == 1) { pStr = psStrs.reverse().join("") + pStr }
       else if (e == 2 && ps.length == 1) { pStr = psStrs[0] + psStrs[0] + pStr; }
       else { pStr = colorMultiPrefix(e) + psStrs.reverse().join("") + "-a" + pStr; }
@@ -826,7 +778,7 @@ function colorPrefix(a,b, opts) {
   }
   else {
     for (const [p,e] of factors) {
-      pStr = colorFactorPrefix(p, e.valueOf(), verbosity) + pStr;
+      pStr = colorFactorPrefix(p, e.valueOf(), opts) + pStr;
     }
   }
   // get rid of a trailing "-a"
@@ -834,8 +786,26 @@ function colorPrefix(a,b, opts) {
     pStr = pStr.replace(/-a$/, "");
   }
 
+  let [hy1, hy2] = ["", ""];
+  if (verbosity != 0) {
+    let coNoHyphen = cos <= 1; // when coStr is empty or a single syllable
+    let mNoHyphen = mAbs <= 1; // when mStr is empty or a single syllable
+    let pNoHyphen = factors.length == 0 ||
+                    (factors.length == 1 && Math.abs(factors[0][1]) == 1);
+                    // ^ when pStr is a single syllable
+    // we add a hyphen between sections in all but the cases in which we would
+    //  have a single syllable on either the left or right side
+    if (mAbs == 0) {
+      if (!(coNoHyphen || pNoHyphen)) { hy2 = "-"; }
+    }
+    else {
+      if (!(coNoHyphen || mNoHyphen)) { hy1 = "-"; }
+      if (!( mNoHyphen || pNoHyphen)) { hy2 = "-"; }
+    }
+  }
+
   // put the final string together
-  let res = mStr + pStr;
+  let res = coStr + hy1 + mStr + hy2 + pStr;
 
   if (res == "lo") { return "ilo"; }
   if (res == "so") { return "iso"; }
@@ -852,8 +822,12 @@ function colorPrefix(a,b, opts) {
   * @param {integer=} opts.verbosity verbosity can be the default 0
   *                                  (e.g. "17og3"), 1 (e.g. "sogu 3rd"), or
   *                                  2 (e.g. "sogu third")
+  * @param {boolean=} opts.addCosAfterDeg defaults to 13, if set to `Infinity`,
+  *                                       a "co" prefix is never added
   * @param {boolean=} opts.useFullMagnitude defaults to false
   * @param {boolean=} opts.useWordNegative defaults to false
+  * @param {boolean} opts.useExps defaults to false
+  * @param {boolean=} opts.useHTMLExps defaults to false
   * @returns {string}
   */
 function colorSymb(a,b, opts) {
@@ -862,14 +836,24 @@ function colorSymb(a,b, opts) {
     opts = b;
     b = undefined;
   }
-  let {verbosity, useFullMagnitude, useWordNegative} = opts || {};
+  let {verbosity, addCosAfterDeg, useFullMagnitude, useWordNegative, useExps, useHTMLExps} = opts || {};
   if (verbosity == undefined) { verbosity = 0; }
+  if (addCosAfterDeg == undefined) { addCosAfterDeg = 13; }
   const optsToPass = { verbosity: verbosity
-                     , useFullMagnitude: useFullMagnitude };
+                     , addCosAfterDeg: addCosAfterDeg
+                     , useFullMagnitude: useFullMagnitude
+                     , useExps: useExps
+                     , useHTMLExps: useHTMLExps };
 
   const i = Interval(a,b);
+  const i_logval = i.valueOf_log();
 
-  const d = colorDegree(i);
+  let d = colorDegree(i);
+  if (i_logval >= 1 && (d > addCosAfterDeg || d < -addCosAfterDeg)) {
+    const cos = Math.floor(i_logval);
+    d = colorDegree(i.div(Interval(2).pow(cos)));
+  }
+
   const spacer_str = verbosity > 0 ? " " : "";
   const neg_str = verbosity > 0 && d < 0 ? (useWordNegative ? "negative " : "-") : "";
   const d_str = pyDegreeString(d, verbosity);
@@ -943,6 +927,7 @@ function colorFromSymb(cos, m, iNo23, d, logCorrections) {
   *                                  (e.g. "17ogC5"), 1 (e.g. "sogu C5"), or 2
   *                                  (the same as 1 for this function)
   * @param {boolean=} opts.useASCII defaults to false
+  * @param {boolean=} opts.addHTMLExps defaults to false
   * @returns {string}
   */
 function colorNote(a,b, opts) {
@@ -951,16 +936,18 @@ function colorNote(a,b, opts) {
     opts = b;
     b = undefined;
   }
-  let {verbosity, useASCII} = opts || {};
+  let {verbosity, useASCII, addHTMLExps} = opts || {};
   if (verbosity == undefined) { verbosity = 0; }
   const optsToPass = { verbosity: verbosity
-                     , hideMagnitude: true };
+                     , addCosAfterDeg: Infinity
+                     , hideMagnitude: true
+                     , addHTMLExps: addHTMLExps };
 
   const i = Interval(a,b);
   let [e2,iNo2] = i.factorOut(2);
   let [e3,iNo23] = iNo2.factorOut(3);
   if (iNo23.equals(1)) {
-    return pyNote(pyi, useASCII);
+    return pyNote(i, useASCII);
   }
   for (const [p,e] of iNo23.factors()) {
     const j = colorFromSymb(0, 0, Interval(p), 1).pow(e);
@@ -999,22 +986,16 @@ function colorFromNote(iNo23, pyi) {
   * @returns {string}
   */
 function colorTemperament(a,b) {
-  const iUnRed = Interval(a,b);
-  if (iUnRed.compare(1) < 0) {
+  const i = Interval(a,b);
+  if (i.compare(1) < 0) {
     throw new Error("Comma passed to `colorTempermentName` must be > 1");
   }
 
-  const i = iUnRed.red();
-  const cos = iUnRed.div(i).expOf(2).valueOf();
-  let coStr = "";
-  if (cos == 1) { coStr = "co"; }
-  if (cos == 2) { coStr = "coco-"; }
-  if (cos >= 3) { coStr = colorMultiPrefix(cos) + "co-"; }
-
-  const [m, d] = [colorMagnitude(i), colorDegree(i)]
+  const iRed = i.red();
+  const [m, d] = [colorMagnitude(iRed), colorDegree(iRed)]
   const iNo23 = i.factorOut(2)[1].factorOut(3)[1];
   let segOffset = 1;
-  let last_diff = i.distance();
+  let last_diff = iRed.distance();
   let curr_diff = colorFromSymb(0, m, iNo23, d-1).red().distance();
   while (curr_diff.compare(last_diff) < 0) {
     segOffset++;
@@ -1024,9 +1005,9 @@ function colorTemperament(a,b) {
   const segOffsetStr = colorMultiPrefix(segOffset);
 
   const colorStr = colorPrefix(i, { verbosity: 1
-                                  , useFullMagnitude: false
-                                  , hasCoPrefix: cos == 1 });
-  return coStr + colorStr + segOffsetStr;
+                                  , addCosAfterDeg: 0 // i.e. always
+                                  , useFullMagnitude: false });
+  return colorStr + segOffsetStr;
 }
 
 module['exports'].colorPrimeZDegree = colorPrimeZDegree;
@@ -1043,7 +1024,7 @@ module['exports'].colorNote = colorNote;
 module['exports'].colorFromNote = colorFromNote;
 module['exports'].colorTemperament = colorTemperament;
 
-},{"./interval.js":7,"./pythagorean.js":11,"./utils.js":12,"fraction.js":15,"mathutils":16,"primes-and-factors":19}],3:[function(require,module,exports){
+},{"./interval.js":7,"./pythagorean.js":11,"./utils.js":13,"fraction.js":16,"mathutils":17,"primes-and-factors":20}],3:[function(require,module,exports){
 /**
  * Functions for working with intervals in an EDO
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -1318,7 +1299,7 @@ module['exports'].updnsSymb = updnsSymb;
 module['exports'].updnsNoteCache = updnsNoteCache;
 module['exports'].updnsNote = updnsNote;
 
-},{"./interval.js":7,"./pythagorean.js":11,"./utils.js":12,"fraction.js":15,"mathutils":16}],4:[function(require,module,exports){
+},{"./interval.js":7,"./pythagorean.js":11,"./utils.js":13,"fraction.js":16,"mathutils":17}],4:[function(require,module,exports){
 /**
  * English names for intervals based on the Neutral FJS and ups-and-downs
  * notations (very much incomplete!)
@@ -1346,7 +1327,7 @@ const primeNames = { '5':  ["classic", "cls."]
   * Neutral FJS and ups-and-downs notations.
   *
   * @param {Interval} i
-  * @param {{abbreviate: boolean, prefEDO: }=} opts
+  * @param {{abbreviate: boolean, prefEDO: integer}=} opts
   * @returns {Array.<string>}
   */
 function enNames(a,b, opts) {
@@ -1495,7 +1476,7 @@ function enNames(a,b, opts) {
 
 module.exports.enNames = enNames;
 
-},{"./edo.js":3,"./fjs.js":5,"./interval.js":7,"./pythagorean.js":11,"fraction.js":15,"number-to-words":18,"primes-and-factors":19}],5:[function(require,module,exports){
+},{"./edo.js":3,"./fjs.js":5,"./interval.js":7,"./pythagorean.js":11,"fraction.js":16,"number-to-words":19,"primes-and-factors":20}],5:[function(require,module,exports){
 /**
  * Functions for working with FJS intervals
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -1789,7 +1770,7 @@ function fjsAccidentals(a,b, spec) {
   if (py.isPythagorean(pyi) && py.pyGenerator(pyi) % modulus == 0) {
     const otoStr = otos.length == 0 ? "" : "^" + otos.join(",");
     const utoStr = utos.length == 0 ? "" : "_" + utos.join(",");
-    return { accStr: otoStr + utoStr, pyi: pyi };
+    return { otos: otos, utos: utos, accStr: otoStr + utoStr, pyi: pyi };
   }
 }
 
@@ -1838,7 +1819,7 @@ module['exports'].fjsAccidentals = fjsAccidentals;
 module['exports'].fjsSymb = fjsSymb;
 module['exports'].fjsNote = fjsNote;
 
-},{"./interval.js":7,"./pythagorean.js":11,"fraction.js":15,"primes-and-factors":19}],6:[function(require,module,exports){
+},{"./interval.js":7,"./pythagorean.js":11,"fraction.js":16,"primes-and-factors":20}],6:[function(require,module,exports){
 // export everything from `lib/` as well as `Fraction` from fraction.js
 module['exports']['Fraction'] = require('fraction.js');
 module['exports']['Interval'] = require('./interval.js');
@@ -1846,11 +1827,12 @@ Object.assign(module['exports'], require('./pythagorean.js'));
 Object.assign(module['exports'], require('./fjs.js'));
 Object.assign(module['exports'], require('./edo.js'));
 Object.assign(module['exports'], require('./color.js'));
+Object.assign(module['exports'], require('./sets.js'));
 Object.assign(module['exports'], require('./approx.js'));
 Object.assign(module['exports'], require('./english.js'));
 Object.assign(module['exports'], require('./parser.js'));
 
-},{"./approx.js":1,"./color.js":2,"./edo.js":3,"./english.js":4,"./fjs.js":5,"./interval.js":7,"./parser.js":8,"./pythagorean.js":11,"fraction.js":15}],7:[function(require,module,exports){
+},{"./approx.js":1,"./color.js":2,"./edo.js":3,"./english.js":4,"./fjs.js":5,"./interval.js":7,"./parser.js":8,"./pythagorean.js":11,"./sets.js":12,"fraction.js":16}],7:[function(require,module,exports){
 /**
  * The interval datatype, based on `Fraction` from `fraction.js` on npm
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -2614,7 +2596,7 @@ Interval.prototype = {
 
 module.exports = Interval;
 
-},{"./utils.js":12,"big-integer":13,"fraction.js":15,"fraction.js/bigfraction.js":14,"primes-and-factors":19}],8:[function(require,module,exports){
+},{"./utils.js":13,"big-integer":14,"fraction.js":16,"fraction.js/bigfraction.js":15,"primes-and-factors":20}],8:[function(require,module,exports){
 /**
  * Interface for parsing interval/note expressions
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -2857,7 +2839,7 @@ function parse(str, opts) {
     results = results.filter(d => !(d.type[0] == "note" && d.type[1] != "symbol"));
   }
   if (results.length > 1) {
-    console.log("Parse was ambiguous! Full results:");
+    console.dir("Parse was ambiguous on: \'" + str + "\' - full results:");
     console.dir(results, { depth: null });
   }
   let ret = { type: results[0].type[0]
@@ -3043,7 +3025,7 @@ module['exports'].parseColorNote = parseColorNote;
 module['exports'].parse = parse;
 module['exports'].parseCvt = parseCvt;
 
-},{"./color.js":2,"./edo.js":3,"./english.js":4,"./fjs.js":5,"./interval.js":7,"./parser/eval.js":9,"./parser/grammar.js":10,"./pythagorean.js":11,"./utils.js":12,"fraction.js":15,"nearley":17}],9:[function(require,module,exports){
+},{"./color.js":2,"./edo.js":3,"./english.js":4,"./fjs.js":5,"./interval.js":7,"./parser/eval.js":9,"./parser/grammar.js":10,"./pythagorean.js":11,"./utils.js":13,"fraction.js":16,"nearley":18}],9:[function(require,module,exports){
 /**
  * A function for evaluating the results of running `grammar.ne`
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -3274,7 +3256,8 @@ function evalExpr(e, r, opts, state) {
       const m  = evalExpr(e[2], r, opts, state).val;
       const pps = e[3].map(ei => evalExpr(ei, r, opts, state).val); // prime powers
       const ps = pps.map(pp => pp.factors()[0][0]); // the primes in pps
-      const [d, loc] = [e[4], e[5]];
+      const d = evalExpr(e[4], r, opts, state).val;
+      const loc = e[5];
       // ensure the list is decreasing
       if (pps.length > 0 && !ps.every((p,i) => i == 0 || p <= ps[i-1])) {
         throw new OtherError("Invalid color prefix (non-decreasing)", loc);
@@ -3368,7 +3351,7 @@ module['exports'].OtherError = OtherError;
 module['exports'].defaultRefNote = defaultRefNote;
 module['exports'].evalExpr = evalExpr;
 
-},{"../color.js":2,"../edo.js":3,"../fjs.js":5,"../interval.js":7,"../pythagorean.js":11,"fraction.js":15,"primes-and-factors":19}],10:[function(require,module,exports){
+},{"../color.js":2,"../edo.js":3,"../fjs.js":5,"../interval.js":7,"../pythagorean.js":11,"fraction.js":16,"primes-and-factors":20}],10:[function(require,module,exports){
 // Generated automatically by nearley, version 2.20.1
 // http://github.com/Hardmath123/nearley
 (function () {
@@ -3835,21 +3818,39 @@ var grammar = {
     {"name": "colorIntv", "symbols": ["clrIntv"], "postprocess": id},
     {"name": "colorNote", "symbols": ["aclrNote"], "postprocess": id},
     {"name": "colorNote", "symbols": ["clrNote"], "postprocess": id},
-    {"name": "aclrIntv$ebnf$1", "symbols": []},
-    {"name": "aclrIntv$ebnf$1", "symbols": ["aclrIntv$ebnf$1", {"literal":"c"}], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
-    {"name": "aclrIntv", "symbols": ["aclrIntv$ebnf$1", "aclrM", "aclrP", "clrDeg"], "postprocess": (d,loc,_) => ["!clrIntv", d[0].length, d[1], d[2], d[3], loc]},
+    {"name": "aclrIntv", "symbols": ["aclrCos", "aclrM", "aclrP", "aclrDeg"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], d[3], loc]},
     {"name": "aclrNote", "symbols": ["aclrP", "pyNote"], "postprocess": (d,loc,_) => ["!clrNote", d[0], d[1], loc]},
+    {"name": "aclrCos", "symbols": [], "postprocess": d => 0},
+    {"name": "aclrCos$ebnf$1", "symbols": [{"literal":"c"}]},
+    {"name": "aclrCos$ebnf$1", "symbols": ["aclrCos$ebnf$1", {"literal":"c"}], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
+    {"name": "aclrCos", "symbols": ["aclrCos$ebnf$1"], "postprocess": d => d[0].length},
+    {"name": "aclrCos$string$1", "symbols": [{"literal":"c"}, {"literal":"^"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrCos", "symbols": ["aclrCos$string$1", /[1-9]/], "postprocess": d => parseInt(d[1])},
+    {"name": "aclrCos$string$2", "symbols": [{"literal":"c"}, {"literal":"^"}, {"literal":"("}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrCos", "symbols": ["aclrCos$string$2", "posInt", {"literal":")"}], "postprocess": d => parseInt(d[1])},
     {"name": "aclrM", "symbols": [], "postprocess": d => 0},
     {"name": "aclrM$ebnf$1", "symbols": [{"literal":"L"}]},
     {"name": "aclrM$ebnf$1", "symbols": ["aclrM$ebnf$1", {"literal":"L"}], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "aclrM", "symbols": ["aclrM$ebnf$1"], "postprocess": d => d[0].length},
+    {"name": "aclrM$string$1", "symbols": [{"literal":"L"}, {"literal":"^"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrM", "symbols": ["aclrM$string$1", /[1-9]/], "postprocess": d => parseInt(d[1])},
+    {"name": "aclrM$string$2", "symbols": [{"literal":"L"}, {"literal":"^"}, {"literal":"("}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrM", "symbols": ["aclrM$string$2", "posInt", {"literal":")"}], "postprocess": d => parseInt(d[1])},
     {"name": "aclrM$ebnf$2", "symbols": [{"literal":"s"}]},
     {"name": "aclrM$ebnf$2", "symbols": ["aclrM$ebnf$2", {"literal":"s"}], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "aclrM", "symbols": ["aclrM$ebnf$2"], "postprocess": d => -d[0].length},
+    {"name": "aclrM$string$3", "symbols": [{"literal":"s"}, {"literal":"^"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrM", "symbols": ["aclrM$string$3", /[1-9]/], "postprocess": d => -parseInt(d[1])},
+    {"name": "aclrM$string$4", "symbols": [{"literal":"s"}, {"literal":"^"}, {"literal":"("}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrM", "symbols": ["aclrM$string$4", "posInt", {"literal":")"}], "postprocess": d => -parseInt(d[1])},
     {"name": "aclrP", "symbols": [{"literal":"w"}], "postprocess": d => []},
-    {"name": "aclrP$ebnf$1", "symbols": ["aclrPP"]},
-    {"name": "aclrP$ebnf$1", "symbols": ["aclrP$ebnf$1", "aclrPP"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
-    {"name": "aclrP", "symbols": ["aclrP$ebnf$1"], "postprocess": d => d[0]},
+    {"name": "aclrP$ebnf$1", "symbols": ["aclrPP1"]},
+    {"name": "aclrP$ebnf$1", "symbols": ["aclrP$ebnf$1", "aclrPP1"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
+    {"name": "aclrP", "symbols": ["aclrP$ebnf$1"], "postprocess": d => d[0].flat(1)},
+    {"name": "aclrPP1", "symbols": ["aclrPP"], "postprocess": d => [d[0]]},
+    {"name": "aclrPP1", "symbols": ["aclrPP", {"literal":"^"}, /[1-9]/], "postprocess": d => Array(parseInt(d[2])).fill(d[0])},
+    {"name": "aclrPP1$string$1", "symbols": [{"literal":"^"}, {"literal":"("}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "aclrPP1", "symbols": ["aclrPP", "aclrPP1$string$1", "posInt", {"literal":")"}], "postprocess": d => Array(parseInt(d[2])).fill(d[0])},
     {"name": "aclrPP", "symbols": [{"literal":"y"}], "postprocess": d => Interval(5)},
     {"name": "aclrPP", "symbols": [{"literal":"g"}], "postprocess": d => Interval(1,5)},
     {"name": "aclrPP", "symbols": [{"literal":"z"}], "postprocess": d => Interval(7)},
@@ -3860,26 +3861,23 @@ var grammar = {
     {"name": "aclrPP$ebnf$2", "symbols": [{"literal":"u"}]},
     {"name": "aclrPP$ebnf$2", "symbols": ["aclrPP$ebnf$2", {"literal":"u"}], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "aclrPP", "symbols": ["posInt", "aclrPP$ebnf$2"], "postprocess": (d,loc,_) => ["!aclrPP", parseInt(d[0]), -d[1].length, loc]},
+    {"name": "aclrDeg", "symbols": ["posInt"], "postprocess": d => parseInt(d[0])},
+    {"name": "aclrDeg", "symbols": [{"literal":"-"}, "posInt"], "postprocess": d => - parseInt(d[1])},
+    {"name": "clrIntv", "symbols": ["clrCos", "clrM", "clrP", "aclrDeg"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], d[3], loc]},
     {"name": "clrIntv", "symbols": ["clrCos", "clrM", "clrP", "clrDeg"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], d[3], loc]},
-    {"name": "clrIntv$ebnf$1", "symbols": [{"literal":"-"}], "postprocess": id},
-    {"name": "clrIntv$ebnf$1", "symbols": [], "postprocess": function(d) {return null;}},
-    {"name": "clrIntv", "symbols": ["clrCos", "clrM", "clrP", "__", "clrIntv$ebnf$1", "ordinal"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], (d[4] ? -1 : 1) * parseInt(d[5]), loc]},
-    {"name": "clrIntv$string$1", "symbols": [{"literal":"u"}, {"literal":"n"}, {"literal":"i"}, {"literal":"s"}, {"literal":"o"}, {"literal":"n"}], "postprocess": function joiner(d) {return d.join('');}},
-    {"name": "clrIntv", "symbols": ["clrCos", "clrM", "clrP", "__", "clrIntv$string$1"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], 1, loc]},
-    {"name": "clrIntv$string$2", "symbols": [{"literal":"o"}, {"literal":"c"}, {"literal":"t"}, {"literal":"a"}, {"literal":"v"}, {"literal":"e"}], "postprocess": function joiner(d) {return d.join('');}},
-    {"name": "clrIntv", "symbols": ["clrCos", "clrM", "clrP", "__", "clrIntv$string$2"], "postprocess": (d,loc,_) => ["!clrIntv", d[0], d[1], d[2], 8, loc]},
     {"name": "clrNote", "symbols": ["clrP", "pyNote"], "postprocess": (d,loc,_) => ["!clrNote", d[0], d[1], loc]},
     {"name": "clrCos", "symbols": [], "postprocess": d => 0},
-    {"name": "clrCos$string$1", "symbols": [{"literal":"c"}, {"literal":"o"}], "postprocess": function joiner(d) {return d.join('');}},
-    {"name": "clrCos", "symbols": ["clrCos$string$1"], "postprocess": d => 1},
-    {"name": "clrCos$string$2", "symbols": [{"literal":"c"}, {"literal":"o"}], "postprocess": function joiner(d) {return d.join('');}},
     {"name": "clrCos$ebnf$1$string$1", "symbols": [{"literal":"c"}, {"literal":"o"}], "postprocess": function joiner(d) {return d.join('');}},
     {"name": "clrCos$ebnf$1", "symbols": ["clrCos$ebnf$1$string$1"]},
     {"name": "clrCos$ebnf$1$string$2", "symbols": [{"literal":"c"}, {"literal":"o"}], "postprocess": function joiner(d) {return d.join('');}},
     {"name": "clrCos$ebnf$1", "symbols": ["clrCos$ebnf$1", "clrCos$ebnf$1$string$2"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
-    {"name": "clrCos", "symbols": ["clrCos$string$2", "clrCos$ebnf$1", {"literal":"-"}], "postprocess": d => 1 + d[1].length},
-    {"name": "clrCos$string$3", "symbols": [{"literal":"c"}, {"literal":"o"}, {"literal":"-"}], "postprocess": function joiner(d) {return d.join('');}},
-    {"name": "clrCos", "symbols": ["clrMPs", "clrCos$string$3"], "postprocess": d => d[0]},
+    {"name": "clrCos$ebnf$2", "symbols": [{"literal":"-"}], "postprocess": id},
+    {"name": "clrCos$ebnf$2", "symbols": [], "postprocess": function(d) {return null;}},
+    {"name": "clrCos", "symbols": ["clrCos$ebnf$1", "clrCos$ebnf$2"], "postprocess": d => d[0].length},
+    {"name": "clrCos$string$1", "symbols": [{"literal":"c"}, {"literal":"o"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrCos$ebnf$3", "symbols": [{"literal":"-"}], "postprocess": id},
+    {"name": "clrCos$ebnf$3", "symbols": [], "postprocess": function(d) {return null;}},
+    {"name": "clrCos", "symbols": ["clrMPs", "clrCos$string$1", "clrCos$ebnf$3"], "postprocess": d => d[0]},
     {"name": "clrM", "symbols": [], "postprocess": d => 0},
     {"name": "clrM$ebnf$1$string$1", "symbols": [{"literal":"l"}, {"literal":"a"}], "postprocess": function joiner(d) {return d.join('');}},
     {"name": "clrM$ebnf$1", "symbols": ["clrM$ebnf$1$string$1"]},
@@ -3941,8 +3939,20 @@ var grammar = {
     {"name": "clrPP", "symbols": ["clrPP$string$6"], "postprocess": d => Interval(1,11)},
     {"name": "clrPP", "symbols": ["clrGenPP", {"literal":"o"}], "postprocess": d => d[0]},
     {"name": "clrPP", "symbols": ["clrGenPP", {"literal":"u"}], "postprocess": d => ["recip", d[0]]},
-    {"name": "clrDeg", "symbols": ["posInt"], "postprocess": d => d[0]},
-    {"name": "clrDeg", "symbols": [{"literal":"-"}, "posInt"], "postprocess": d => -d[1]},
+    {"name": "clrDeg$string$1", "symbols": [{"literal":"n"}, {"literal":"e"}, {"literal":"g"}, {"literal":"a"}, {"literal":"t"}, {"literal":"i"}, {"literal":"v"}, {"literal":"e"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrDeg", "symbols": ["__", "clrDeg$string$1", "clrPosDeg"], "postprocess": d => ["*", -1, d[2]]},
+    {"name": "clrDeg", "symbols": ["__", {"literal":"-"}, "clrOrdinalDeg"], "postprocess": d => ["*", -1, d[2]]},
+    {"name": "clrDeg", "symbols": ["clrPosDeg"], "postprocess": id},
+    {"name": "clrPosDeg$string$1", "symbols": [{"literal":"u"}, {"literal":"n"}, {"literal":"i"}, {"literal":"s"}, {"literal":"o"}, {"literal":"n"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrPosDeg", "symbols": ["__", "clrPosDeg$string$1"], "postprocess": d => 1},
+    {"name": "clrPosDeg$string$2", "symbols": [{"literal":"o"}, {"literal":"c"}, {"literal":"t"}, {"literal":"a"}, {"literal":"v"}, {"literal":"e"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrPosDeg", "symbols": ["__", "clrPosDeg$string$2"], "postprocess": d => 8},
+    {"name": "clrPosDeg", "symbols": ["__", "clrOrdinalDeg"], "postprocess": d => d[1]},
+    {"name": "clrOrdinalDeg$string$1", "symbols": [{"literal":"1"}, {"literal":"s"}, {"literal":"n"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrOrdinalDeg", "symbols": ["clrOrdinalDeg$string$1"], "postprocess": d => 1},
+    {"name": "clrOrdinalDeg$string$2", "symbols": [{"literal":"8"}, {"literal":"v"}, {"literal":"e"}], "postprocess": function joiner(d) {return d.join('');}},
+    {"name": "clrOrdinalDeg", "symbols": ["clrOrdinalDeg$string$2"], "postprocess": d => 8},
+    {"name": "clrOrdinalDeg", "symbols": ["ordinal"], "postprocess": d => parseInt(d[0])},
     {"name": "clrMPs$ebnf$1", "symbols": ["clrMP"]},
     {"name": "clrMPs$ebnf$1", "symbols": ["clrMPs$ebnf$1", "clrMP"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "clrMPs", "symbols": ["clrMPs$ebnf$1"], "postprocess": (d,loc,_) => ["!clrMPs", d[0], loc]},
@@ -4082,7 +4092,7 @@ if (typeof module !== 'undefined'&& typeof module.exports !== 'undefined') {
 }
 })();
 
-},{"../edo.js":3,"../fjs.js":5,"../interval.js":7,"../pythagorean.js":11,"./eval.js":9,"fraction.js":15}],11:[function(require,module,exports){
+},{"../edo.js":3,"../fjs.js":5,"../interval.js":7,"../pythagorean.js":11,"./eval.js":9,"fraction.js":16}],11:[function(require,module,exports){
 /**
  * Functions for working with pythagorean and neutral pythagorean intervals
  * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
@@ -4283,14 +4293,12 @@ function pyDegreeString(d, verbosity) {
     return d;
   }
   if (verbosity == 1) {
+    if (Math.abs(d) == 1) { return "1sn"; }
+    if (Math.abs(d) == 1) { return "8ve"; }
     return ntw.toOrdinal(Math.abs(d));
   }
-  if (Math.abs(d) == 1) {
-    return "unison"
-  }
-  if (Math.abs(d) == 8) {
-    return "octave"
-  }
+  if (Math.abs(d) == 1) { return "unison"; }
+  if (Math.abs(d) == 1) { return "octave"; }
   return ntw.toWordsOrdinal(Math.abs(d));
 }
 
@@ -4419,7 +4427,531 @@ module['exports'].baseNoteIntvToA = baseNoteIntvToA;
 module['exports'].octaveOfIntvToA4 = octaveOfIntvToA4;
 module['exports'].pyNote = pyNote;
 
-},{"./interval.js":7,"./utils.js":12,"fraction.js":15,"number-to-words":18,"primes-and-factors":19}],12:[function(require,module,exports){
+},{"./interval.js":7,"./utils.js":13,"fraction.js":16,"number-to-words":19,"primes-and-factors":20}],12:[function(require,module,exports){
+/**
+ * Generators for sets of intervals
+ * @copyright 2021 Matthew Yacavone (matthew [at] yacavone [dot] net)
+ * @module sets
+ **/
+
+const {cachedLog2} = require('./utils.js');
+const Fraction = require('fraction.js');
+const Interval = require('./interval.js');
+
+// For a given interval with factorization `p1^e1 ... pm^em` (where `pk` is
+// prime and `ek > 0` for all `k`), `signPerms(intv)` is the array of all
+// intervals with factorizations `p1^(+/- e1) ... pm^(+/- em)`. For example, if
+// `i = 45` then `i = 3^2 * 5^1` and
+// `signPerms(i) = [ 3^2 * 5^1, 3^(-2) * 5^1, 3^2 * 5^(-1), 3^(-2) * 5(-1) ]`.
+// Note that we also include the log2 values of each interval as well.
+function* signPerms(intv) {
+  const intv_fact = intv.factors();
+  for (let bits = 0; bits < (1 << intv_fact.length); bits++) {
+    let [i, fact, logval] = [0, {}, 0];
+    for (const [p,e] of intv_fact) {
+      fact[p] = e.mul((bits & (1 << i)) == 0 ? 1 : -1);
+      logval += fact[p].valueOf() * cachedLog2(p);
+      i++;
+    }
+    yield [Interval(fact), logval];
+  }
+}
+
+/**
+  * A helper function for generating ratios by no-2s Benedetti/Tenney height.
+  *
+  * @param {integer} startOdd the no-2s Benedetti height to start with (inclusive)
+  * @param {integer} endOdd the no-2s Benedetti height to end with (exclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @yields {Pair.<Interval, Iterable.<Pair.<Interval, integer>>>}
+  */
+function* ratioPermsByNo2sHeight(startOdd, endOdd, opts) {
+  if (startOdd == undefined || startOdd < 1 || endOdd < -1) {
+    throw new Error("Invalid arguments to ratiosByNo2sHeight: startOdd = " + start + ", endOdd = " + end);
+  }
+  const start = Math.ceil((startOdd-1)/2);
+  const end = Math.floor((endOdd-1)/2);
+  if (opts == undefined) { opts = {}; }
+  const {primeLimit} = opts;
+  for (let h = start; !isFinite(end) || h < end; h++) {
+    const i = Interval(2*h + 1);
+    if (primeLimit && !i.inPrimeLimit(primeLimit)) {
+      continue;
+    }
+    yield [i, signPerms(i)];
+  }
+}
+
+/**
+  * Generates ratios between 1 and 2 sorted by the Benedetti height of the
+  * ratio with all factors of 2 removed (or equivalently, the Tenney height of
+  * the ratio with all factors of 2 removed). To specify `start` and `end`
+  * using Tenney height, use `2 ** tenneyStart` and `2 ** tenneyEnd`.
+  *
+  * @param {integer} start the no-2s Benedetti height to start with (inclusive)
+  * @param {integer} end the no-2s Benedetti height to end with (exclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @yields {Fraction}
+  */
+function* redRatiosByNo2sHeight(start, end, opts) {
+  const {oddLimit} = opts == undefined ? {} : opts;
+  for (const [i, perms] of ratioPermsByNo2sHeight(start, end, opts)) {
+    for (const [j_no2s, j_no2s_logval] of perms) {
+      const j = j_no2s.red();
+      if (oddLimit && !j.inOddLimit(oddLimit)) {
+        continue;
+      }
+      yield j.toFrac();
+    }
+  }
+}
+
+/**
+  * Generates ratios between 1/sqrt(2) and sqrt(2) sorted by the Benedetti
+  * height of the ratio with all factors of 2 removed (or equivalently, the
+  * Tenney height of the ratio with all factors of 2 removed). To specify
+  * `start` and `end` using Tenney height, use `2 ** tenneyStart` and
+  * `2 ** tenneyEnd`.
+  *
+  * @param {integer} start the no-2s Benedetti height to start with (inclusive)
+  * @param {integer} end the no-2s Benedetti height to end with (exclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @yields {Fraction}
+  */
+function* rebRatiosByNo2sHeight(start, end, opts) {
+  const {oddLimit} = opts == undefined ? {} : opts;
+  for (const [i, perms] of ratioPermsByNo2sHeight(start, end, opts)) {
+    for (const [j_no2s, j_no2s_logval] of perms) {
+      const j = j_no2s.reb();
+      if (oddLimit && !j.inOddLimit(oddLimit)) {
+        continue;
+      }
+      yield j.toFrac();
+    }
+  }
+}
+
+/**
+  * A helper function for generating ratios by Benedetti/Tenney height.
+  *
+  * @param {integer} start the Benedetti height to start with (inclusive)
+  * @param {integer} end the Benedetti height to end with (exclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @yields {Pair.<Interval, Iterable.<Pair.<Interval, integer>>>}
+  */
+function* ratioPermsByHeight(start, end, opts) {
+  if (start == undefined || start < 1 || end < -1) {
+    throw new Error("Invalid arguments to ratiosByHeight: start = " + start + ", end = " + end);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit} = opts;
+  for (let h = Math.ceil(start); !isFinite(end) || h < end; h++) {
+    const i = Interval(h);
+    if (primeLimit && !i.inPrimeLimit(primeLimit)) {
+      continue;
+    }
+    function* perms() {
+      for (const [j, j_logval] of signPerms(i)) {
+        if (oddLimit && !j.inOddLimit(oddLimit)) {
+          continue;
+        }
+        yield [j, j_logval];
+      }
+    }
+    yield [i, perms()];
+  }
+}
+
+/**
+  * Generates ratios sorted by the Benedetti height of the ratio (or
+  * equivalently, the Tenney height of the ratio). To specify `start` and `end`
+  * using Tenney height, use `2 ** tenneyStart` and `2 ** tenneyEnd`.
+  *
+  * @param {integer} start the Benedetti height to start with (inclusive)
+  * @param {integer} end the Benedetti height to end with (exclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @yields {Fraction}
+  */
+function* ratiosByHeight(start, end, opts) {
+  for (const [i, perms] of ratioPermsByHeight(start, end, opts)) {
+    for (const [j, j_logval] of perms) {
+      yield j.toFrac();
+    }
+  }
+}
+
+/**
+  * Generates all ratios with the given denominator in the given range [lo, hi],
+  * or between 1 and 2 if no range is given, sorted by value.
+  *
+  * @param {integer} d
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosWithDenom(d, opts) {
+  if (!isFinite(d) || d < 1) {
+    throw new Error("Invalid argument to ratiosWithDenom: d = " + d);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  if (oddLimit && d % 2 != 0 && d > oddLimit) {
+    return;
+  }
+  const nLo = Math.ceil(lo.mul(d).valueOf());
+  const nHi = Math.floor(hi.mul(d).valueOf());
+  for (let n = nLo; n <= nHi; n++) {
+    const r = Fraction(n,d);
+    // if n/d reduces, we've seen it already - so we can safely skip
+    if (r.d != d) {
+      continue;
+    }
+    if (oddLimit && r.n % 2 != 0 && r.n > oddLimit) {
+      continue;
+    }
+    if (primeLimit && !Interval(r).inPrimeLimit(primeLimit)) {
+      continue;
+    }
+    yield r;
+  }
+}
+
+/**
+  * Generates all ratios with the given numerator in the given range [lo, hi],
+  * or between 1 and 2 if no range is given, sorted by value.
+  *
+  * @param {integer} n
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosWithNumer(n, opts) {
+  if (!isFinite(n) || n < 1) {
+    throw new Error("Invalid argument to ratiosWithNumer: n = " + n);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  if (oddLimit && n % 2 != 0 && n > oddLimit) {
+    return;
+  }
+  const dLo = Math.ceil(hi.recip().mul(n).valueOf());
+  const dHi = Math.floor(lo.recip().mul(n).valueOf());
+  for (let d = dHi; d >= dLo; d--) {
+    const r = Fraction(n,d);
+    // if n/d reduces, we've seen it already - so we can safely skip
+    if (r.n != n) {
+      continue;
+    }
+    if (oddLimit && r.d % 2 != 0 && r.d > oddLimit) {
+      continue;
+    }
+    if (primeLimit && !Interval(r).inPrimeLimit(primeLimit)) {
+      continue;
+    }
+    yield r;
+  }
+}
+
+/**
+  * Generates all ratios with denominators in the given range [start, end] with
+  * values in the given range [lo, hi], or between 1 and 2 if no range is given,
+  * sorted by denominator.
+  *
+  * @param {integer} start the lowest denominator to include (inclusive)
+  * @param {integer} end the highest denominator to include (inclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosByDenom(start, end, opts) {
+  if (start == undefined || start < 1 || end < -1) {
+    throw new Error("Invalid arguments to ratiosByDenom: start = " + start + ", end = " + end);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  for (let d = start; !isFinite(end) || d < end; d++) {
+    for (const r of ratiosWithDenom(d, opts)) {
+      yield r;
+    }
+  }
+}
+
+/**
+  * Generates all ratios with numerators in the given range [start, end] with
+  * values in the given range [lo, hi], or between 1 and 2 if no range is given,
+  * sorted by numerator.
+  *
+  * @param {integer} start the lowest numerator to include (inclusive)
+  * @param {integer} end the highest numerator to include (inclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosByNumer(start, end, opts) {
+  if (start == undefined || start < 1 || end < -1) {
+    throw new Error("Invalid arguments to ratiosByNumer: start = " + start + ", end = " + end);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  for (let n = start; !isFinite(end) || n < end; n++) {
+    for (const r of ratiosWithNumer(n, opts)) {
+      yield r;
+    }
+  }
+}
+
+/**
+  * Generates all ratios with denominators in the given range [start, end] with
+  * values in the given range [lo, hi], or between 1 and 2 if no range is given,
+  * sorted by value.
+  *
+  * @param {integer} start the lowest denominator to include (inclusive)
+  * @param {integer} end the highest denominator to include (inclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosByDenomSorted(start, end, opts) {
+  if (start == undefined || start < 1 || end < -1) {
+    throw new Error("Invalid arguments to ratiosByDenom: start = " + start + ", end = " + end);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  let ret = [];
+  for (let d = start; !isFinite(end) || d < end; d++) {
+    let i = 0;
+    for (const r of ratiosWithDenom(d, opts)) {
+      let added = false;
+      for (; !added && i < ret.length; i++) {
+        if (r.compare(ret[i]) < 0) {
+          ret.splice(i, 0, r);
+          added = true;
+        }
+      }
+      if (!added) {
+        ret.push(r);
+      }
+    }
+  }
+  for (const r of ret) {
+    yield r;
+  }
+}
+
+/**
+  * Generates all ratios with numerators in the given range [start, end] with
+  * values in the given range [lo, hi], or between 1 and 2 if no range is given,
+  * sorted by numerator.
+  *
+  * @param {integer} start the lowest numerator to include (inclusive)
+  * @param {integer} end the highest numerator to include (inclusive)
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {integer} [opts.oddLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosByNumerSorted(start, end, opts) {
+  if (start == undefined || start < 1 || end < -1) {
+    throw new Error("Invalid arguments to ratiosByDenom: start = " + start + ", end = " + end);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, oddLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  let ret = [];
+  for (let n = start; !isFinite(end) || n < end; n++) {
+    let i = 0;
+    for (const r of ratiosWithNumer(n, opts)) {
+      let added = false;
+      for (; !added && i < ret.length; i++) {
+        if (r.compare(ret[i]) < 0) {
+          ret.splice(i, 0, r);
+          added = true;
+        }
+      }
+      if (!added) {
+        ret.push(r);
+      }
+    }
+  }
+  for (const r of ret) {
+    yield r;
+  }
+}
+
+/**
+  * Generates all ratios in the given odd limit which are not in the previous
+  * odd limit with values in the given range [lo, hi], or between 1 and 2 if no
+  * range is given, sorted by value unless `opts.unsorted` is given and true.
+  *
+  * @param {integer} oddLimit
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @param {boolean} [opts.unsorted] defaults to false
+  * @yields {Fraction}
+  */
+function* newRatiosInOddLimit(oddLimit, opts) {
+  if (oddLimit == undefined || oddLimit % 2 == 0 || oddLimit < 1) {
+    throw new Error("Invalid argument to newRatiosInOddLimit: oddLimit = " + oddLimit);
+  }
+  if (opts == undefined) { opts = {}; }
+  let {unsorted} = opts;
+  const ropts = Object.assign({}, opts, {oddLimit: oddLimit, unsorted: undefined});
+  let ret = [];
+  // ratios with denominator = oddLimit
+  for (const r of ratiosWithDenom(oddLimit, ropts)) {
+    if (unsorted) {
+      yield r;
+    }
+    else {
+      ret.push(r);
+    }
+  }
+  // ratios with numerator = oddLimit
+  let i = 0;
+  for (const r of ratiosWithNumer(oddLimit, ropts)) {
+    // if oddLimit == 1, don't add 1/1 twice!
+    if (r.equals(1)) {
+      continue;
+    }
+    if (unsorted) {
+      yield r;
+    }
+    else {
+      let added = false;
+      for (; !added && i < ret.length; i++) {
+        if (r.compare(ret[i]) < 0) {
+          ret.splice(i, 0, r);
+          added = true;
+        }
+      }
+      if (!added) {
+        ret.push(r);
+      }
+    }
+  }
+  if (!unsorted) {
+    for (const r of ret) {
+      yield r;
+    }
+  }
+}
+
+/**
+  * Generates all ratios in the given odd limit with values in the given range
+  * [lo, hi], or between 1 and 2 if no range is given, sorted by minimum odd
+  * limit.
+  *
+  * @param {integer} oddLimit
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @param {boolean} [opts.unsorted] whether or not to sort the intervals
+                                     within each minimum odd limit (see
+                                     `newRatiosInOddLimit`), defaults to false
+  * @yields {Fraction}
+  */
+function* ratiosInOddLimit(oddLimit, opts) {
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  for (let o = 1; o <= oddLimit; o += 2) {
+    for (const r of newRatiosInOddLimit(o, opts)) {
+      yield r;
+    }
+  }
+}
+
+/**
+  * Generates all ratios in the given odd limit with values in the given range
+  * [lo, hi], or between 1 and 2 if no range is given, sorted by value.
+  *
+  * @param {integer} oddLimit
+  * @param {Object} [opts]
+  * @param {integer} [opts.primeLimit]
+  * @param {Interval} [opts.lo] defaults to 1
+  * @param {Interval} [opts.hi] defaults to 2
+  * @yields {Fraction}
+  */
+function* ratiosInOddLimitSorted(oddLimit, opts) {
+  if (opts == undefined) { opts = {}; }
+  let {primeLimit, lo, hi} = opts;
+  lo = Interval(lo == undefined ? 1 : lo);
+  hi = Interval(hi == undefined ? 2 : hi);
+  let ret = []
+  for (let o = 1; o <= oddLimit; o += 2) {
+    let i = 0;
+    for (const r of newRatiosInOddLimit(o, Object.assign({}, opts, {unsorted: false}))) {
+      let added = false;
+      for (; !added && i < ret.length; i++) {
+        if (r.compare(ret[i]) < 0) {
+          ret.splice(i, 0, r);
+          added = true;
+        }
+      }
+      if (!added) {
+        ret.push(r);
+      }
+    }
+  }
+  for (const r of ret) {
+    yield r;
+  }
+}
+
+module.exports.ratioPermsByNo2sHeight = ratioPermsByNo2sHeight;
+module.exports.redRatiosByNo2sHeight = redRatiosByNo2sHeight;
+module.exports.rebRatiosByNo2sHeight = rebRatiosByNo2sHeight;
+module.exports.ratioPermsByHeight = ratioPermsByHeight;
+module.exports.ratiosByHeight = ratiosByHeight;
+module.exports.ratiosWithDenom = ratiosWithDenom;
+module.exports.ratiosWithNumer = ratiosWithNumer;
+module.exports.ratiosByDenom = ratiosByDenom;
+module.exports.ratiosByNumer = ratiosByNumer;
+module.exports.ratiosByDenomSorted = ratiosByDenomSorted;
+module.exports.ratiosByNumerSorted = ratiosByNumerSorted;
+module.exports.newRatiosInOddLimit = newRatiosInOddLimit;
+module.exports.ratiosInOddLimit = ratiosInOddLimit;
+module.exports.ratiosInOddLimitSorted = ratiosInOddLimitSorted;
+
+},{"./interval.js":7,"./utils.js":13,"fraction.js":16}],13:[function(require,module,exports){
 
 const pf = require('primes-and-factors');
 const Fraction = require('fraction.js');
@@ -4485,7 +5017,7 @@ module.exports.maxKey = maxKey;
 module.exports.keys = keys;
 module.exports.primes = primes;
 
-},{"fraction.js":15,"primes-and-factors":19}],13:[function(require,module,exports){
+},{"fraction.js":16,"primes-and-factors":20}],14:[function(require,module,exports){
 var bigInt = (function (undefined) {
     "use strict";
 
@@ -5940,7 +6472,7 @@ if (typeof define === "function" && define.amd) {
     });
 }
 
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 /**
  * @license Fraction.js v4.0.12 09/09/2015
  * http://www.xarg.org/2014/03/rational-numbers-in-javascript/
@@ -6744,7 +7276,7 @@ if (typeof define === "function" && define.amd) {
 
 })(this);
 
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 /**
  * @license Fraction.js v4.0.12 09/09/2015
  * http://www.xarg.org/2014/03/rational-numbers-in-javascript/
@@ -7580,7 +8112,7 @@ if (typeof define === "function" && define.amd) {
 
 })(this);
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 var MathUtils = module.exports = {
 	isOdd: function(num){
 		return num & 1 === 1;
@@ -7636,7 +8168,7 @@ var MathUtils = module.exports = {
 		return arr[1];
 	}
 };
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 (function(root, factory) {
     if (typeof module === 'object' && module.exports) {
         module.exports = factory();
@@ -8202,7 +8734,7 @@ var MathUtils = module.exports = {
 
 }));
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 (function (global){(function (){
 /*!
  * Number-To-Words util
@@ -8215,7 +8747,7 @@ var MathUtils = module.exports = {
 !function(){"use strict";var e="object"==typeof self&&self.self===self&&self||"object"==typeof global&&global.global===global&&global||this,t=9007199254740991;function f(e){return!("number"!=typeof e||e!=e||e===1/0||e===-1/0)}function l(e){return"number"==typeof e&&Math.abs(e)<=t}var n=/(hundred|thousand|(m|b|tr|quadr)illion)$/,r=/teen$/,o=/y$/,i=/(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/,s={zero:"zeroth",one:"first",two:"second",three:"third",four:"fourth",five:"fifth",six:"sixth",seven:"seventh",eight:"eighth",nine:"ninth",ten:"tenth",eleven:"eleventh",twelve:"twelfth"};function h(e){return n.test(e)||r.test(e)?e+"th":o.test(e)?e.replace(o,"ieth"):i.test(e)?e.replace(i,a):e}function a(e,t){return s[t]}var u=10,d=100,p=1e3,v=1e6,b=1e9,y=1e12,c=1e15,g=9007199254740992,m=["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"],w=["zero","ten","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];function x(e,t){var n,r=parseInt(e,10);if(!f(r))throw new TypeError("Not a finite number: "+e+" ("+typeof e+")");if(!l(r))throw new RangeError("Input is not a safe number, it’s either too large or too small.");return n=function e(t){var n,r,o=arguments[1];if(0===t)return o?o.join(" ").replace(/,$/,""):"zero";o||(o=[]);t<0&&(o.push("minus"),t=Math.abs(t));t<20?(n=0,r=m[t]):t<d?(n=t%u,r=w[Math.floor(t/u)],n&&(r+="-"+m[n],n=0)):t<p?(n=t%d,r=e(Math.floor(t/d))+" hundred"):t<v?(n=t%p,r=e(Math.floor(t/p))+" thousand,"):t<b?(n=t%v,r=e(Math.floor(t/v))+" million,"):t<y?(n=t%b,r=e(Math.floor(t/b))+" billion,"):t<c?(n=t%y,r=e(Math.floor(t/y))+" trillion,"):t<=g&&(n=t%c,r=e(Math.floor(t/c))+" quadrillion,");o.push(r);return e(n,o)}(r),t?h(n):n}var M={toOrdinal:function(e){var t=parseInt(e,10);if(!f(t))throw new TypeError("Not a finite number: "+e+" ("+typeof e+")");if(!l(t))throw new RangeError("Input is not a safe number, it’s either too large or too small.");var n=String(t),r=Math.abs(t%100),o=11<=r&&r<=13,i=n.charAt(n.length-1);return n+(o?"th":"1"===i?"st":"2"===i?"nd":"3"===i?"rd":"th")},toWords:x,toWordsOrdinal:function(e){return h(x(e))}};"undefined"!=typeof exports?("undefined"!=typeof module&&module.exports&&(exports=module.exports=M),exports.numberToWords=M):e.numberToWords=M}();
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 "use strict";
 
 var primeFactor = {

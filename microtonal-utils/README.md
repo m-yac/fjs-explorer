@@ -38,6 +38,7 @@ This repository also contains:
 - `fjs.js`: functions related to the Functional Just System (FJS) and systems like it, in particular, functions for formatting FJS interval and note symbols
 - `color.js`: functions for formatting color notation for intervals, notes, and temperaments
 - `parser.js`: a parser for arbitrary expressions involving notes, intervals, and the all note/interval symbols mentioned above (used in [`xen-calc`](https://github.com/m-yac/xen-calc)) as well as inverses of all the formatting functions mentioned above
+- `sets.js`: generators for sets of intervals, e.g. all intervals in an odd limit, all intervals less than some Tenney height
 - `approx.js`: functions for getting best rational and best EDO approximations of an interval
 - `english.js`: an experiment with programmatically assigning English names to arbitrary intervals
 
@@ -55,11 +56,11 @@ $ npm run nearley
 
 ## Using
 
-After building, to use this library in an interactive REPL run:
+After building on your local machine, to use this library in an interactive REPL run:
 ```
 $ npm run repl
 ```
-You can also visit [yacavone.net/microtonal-utils](https://www.yacavone.net/microtonal-utils) or [repl.it/@m_yac/microtonal-utils](https://repl.it/@m_yac/microtonal-utils) to run the REPL in your web browser.
+You can also visit [yacavone.net/microtonal-utils](https://www.yacavone.net/microtonal-utils) or [repl.it/@m_yac/microtonal-utils](https://repl.it/@m_yac/microtonal-utils) instead to run the REPL directly in your web browser.
 
 Everything exported in the `lib` directory is made accessible. Here's an
 example of an interactive session:
@@ -97,9 +98,9 @@ this file can also be found at `dist/microtonal-utils.min.js`.
 
 This library includes a test suite of property-based tests, located in `/test`. The term "property-based" means that each test consists of some property (e.g. `Interval(2).pow(fr).toCents() == fr.mul(1200)`) which is then checked using many (usually 100) randomly generated values (e.g. a randomly generated value for `fr` would be `Fraction(99/38)`). Since each run of the test suite checks these properties with a totally new set of random values, the fact that the test suite consistently passes should give high confidence that these properties do hold in general. There are also a few regression tests, which are not property-based.
 
-To run the test suite, use the command `npm run test` or `npm run test:all`. The latter also includes tests of the parser, which are often fairly slow. The output of `npm run test` should look like:
+To run the test suite, use the command `npm run test` or `npm run test:all`. The latter also includes tests of the parser, which are often fairly slow. The output of `npm run test:all` should look like:
 ```
-$ npm run test
+$ npm run test:all
 
   Interval constructors and conversions
     ✓ Interval(n).factors() is the prime factorization of n
@@ -145,7 +146,8 @@ $ npm run test
     ✓ regression: bestRationalApproxsByHeight({2: 300/1200}, {primeLimit: 13})
     ✓ regression: bestRationalApproxsByHeight({2: 600/1200}, {primeLimit: 13, oddLimit: 81})
     ✓ regression: bestRationalApproxsByHeight(81,64, {primeLimit: 19})
-    ✓ regression: bestRationalApproxsByDiff({2: 350/1200}, {oddLimit: 9})
+    ✓ regression: bestRationalApproxsByDenom({2: 350/1200})
+    ✓ regression: bestRationalApproxsByDiff({2: 350/1200}, {oddLimit: 9, cutoff: {2: 1/2}})
     ✓ regression: bestEDOApproxsByEDO(5,4)
     ✓ regression: bestEDOApproxsByEDO({2: 100/1200})
     ✓ regression: bestEDOApproxsByDiff(5,4)
@@ -165,6 +167,20 @@ $ npm run test
     ✓ colorTemperament(135,128) == layobi
     ✓ colorTemperament([24,-21,4]) == sasa-quadyo
 
-  52 passing (328ms)
+  53 passing (344ms)
+
+
+  Intervals and the parser
+    ✓ toNthRootString: i == parseCvt(i.toNthRootString()).intv (347ms)
+    ✓ fr1.mul(fr2) == parseCvt(`${fr1} * ${fr2}`).ratio (353ms)
+
+  Pythagorean intervals and the parser
+    ✓ pyi == parseCvt(pySymb(pyi)).intv (412ms)
+
+  Color notation intervals and the parser
+    ✓ fr == parseCvt(colorSymb(fr)).ratio (1060ms)
+    ✓ fr == parseCvt(colorSymb(fr, {verbosity:1})).ratio (728ms)
+
+  5 passing (3s)
 
 ```
