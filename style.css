@@ -318,6 +318,36 @@ td {
   word-wrap: break-word;
 }
 
+.hoverSwap .hoverSwap_on { position: relative; visibility: hidden; }
+.hoverSwap .hoverSwap_off { position: absolute; display: inline; }
+.hoverSwap:hover .hoverSwap_on { visibility: visible; }
+.hoverSwap:focus .hoverSwap_on { visibility: visible; }
+.hoverSwap:hover .hoverSwap_off { display: none; }
+.hoverSwap:focus .hoverSwap_off { display: none; }
+
+sup, sub {
+  margin: 0 2px;
+  vertical-align: baseline;
+  position: relative;
+}
+sup {
+  top: -0.35em;
+}
+sub {
+  top: 0.35em;
+}
+
+.supsub {
+  position: absolute;
+}
+.supsub sup, .supsub sub {
+  display: block;
+}
+.supsub sub {
+  position: absolute;
+  top: 0.6em;
+}
+
 button {
   font-size: 100%;
   display: inline-block;
